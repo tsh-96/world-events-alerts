@@ -16,6 +16,7 @@ from pathlib import Path
 
 from alerts.dedupe import open_store
 from alerts.sinks import console as console_sink
+from alerts.sinks import discord as discord_sink
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ SEEN_DB_PATH = STATE_DIR / "seen.sqlite3"
 
 SINKS = {
     "console": console_sink,
+    "discord": discord_sink,
 }
 
 
