@@ -70,6 +70,9 @@ python -m alerts.run --dry-run
 # One real poll cycle against a given sink:
 python -m alerts.run --sinks console
 python -m alerts.run --sinks discord   # requires DISCORD_WEBHOOK_URL, see below
+
+# Mark everything currently new as seen without posting (clears a backlog):
+python -m alerts.run --mark-seen-only
 ```
 
 Useful env vars:
@@ -83,7 +86,7 @@ Useful env vars:
 | `GDACS_FEED_URL` | GDACS feed URL override |
 | `GDACS_MIN_SEVERITY` | minimum GDACS alert level that triggers an alert -- `1`=Green, `2`=Orange, `3`=Red (default `1`, i.e. unfiltered; the live bot runs with `2` since Green fires constantly worldwide, mostly minor satellite-detected wildfires) |
 | `DISCORD_WEBHOOK_URL` | Discord webhook URL -- **secret**, see below |
-| `DISCORD_PACE_WINDOW_MINUTES` | when several new events post at once, spread them at randomized moments (never less than 4 minutes apart) across roughly this many minutes instead of firing them all within seconds (default `45`; that same 4-minute minimum also applies to the very next post after any earlier check's last post -- even a single new event on its own waits out the rest of that gap rather than always posting instantly; any events beyond what the budget can fit at the minimum spacing are left for the next check) |
+| `DISCORD_PACE_WINDOW_MINUTES` | new events spread at randomized moments (never less than 4 minutes apart) across roughly this many minutes instead of firing them all within seconds (default `52`; that same 4-minute minimum also applies to the very next post after any earlier run's last post, even for a single new event; nothing is ever left for the next run -- if there isn't enough of the budget to give every event its own message, extras get bundled a few at a time into the same message instead) |
 
 ## Changing settings on the live bot (no coding needed)
 
@@ -91,9 +94,9 @@ Everything below lives in `.github/workflows/poll.yml`, in the "Easy
 settings" comment block at the top of the file, and can be edited straight
 in the GitHub website (open the file, click the pencil/edit icon, save):
 
-- **How often it checks:** the `cron: "*/10 * * * *"` line. `*/10` means
-  every 10 minutes; change the number (GitHub won't reliably run more often
-  than every 5 minutes, so `*/5` is the practical fastest setting).
+- **How often it checks:** this workflow doesn't schedule itself anymore --
+  see "Scheduling" below for why, and where the hourly trigger actually
+  lives.
 - **Turn a source off:** change `ENABLE_USGS`, `ENABLE_GDACS`, or
   `ENABLE_RSS` from `"true"` to `"false"`.
 - **Earthquake sensitivity:** `USGS_MIN_MAGNITUDE` -- raise it to hear
@@ -101,23 +104,23 @@ in the GitHub website (open the file, click the pencil/edit icon, save):
 - **Disaster severity:** `GDACS_MIN_SEVERITY` -- `1` (Green) includes every
   minor event, `2` (Orange) skips low-significance ones, `3` (Red) only
   major disasters.
-- **Message pacing:** `DISCORD_PACE_WINDOW_MINUTES` -- if a check finds
+- **Message pacing:** `DISCORD_PACE_WINDOW_MINUTES` -- if a run finds
   several new events at once (e.g. after a quiet stretch), they post at
   randomized moments (never less than 4 minutes apart, never more than 10)
   spread across roughly this many minutes, instead of landing in one burst.
-  That 4-minute minimum isn't just within one check -- it also covers the
-  gap since the *previous* check's last post, so even a single new event
-  found on its own waits out the rest of that gap instead of always firing
-  instantly. This stops two checks that happen to run close together (e.g.
-  the normal schedule and a backup timer both catching a new event within a
-  minute of each other) from posting two messages right on top of each
-  other. If there are more new events than fit at that minimum spacing, the
-  extras simply wait and get posted (and re-paced) on the next check --
-  nothing is lost, just deferred. Keep the budget a little under the check
-  frequency so one check's messages finish posting before the next check's
-  results start arriving. Messages always post oldest-first, in the order
-  the events actually happened -- not the order the bot happened to notice
-  them.
+  That 4-minute minimum isn't just within one run -- it also covers the gap
+  since the *previous* run's last post, so two runs close together won't
+  post two messages right on top of each other. Nothing is ever left for
+  the next run: since there's only one check per hour, if there isn't
+  enough of the budget to give every event its own message, extra events
+  get bundled a few at a time into the same message for some of the slots
+  instead -- everything this run finds gets posted this run. Keep the
+  budget comfortably under an hour so one run reliably finishes before the
+  next begins. Messages always post oldest-first, in the order the events
+  actually happened -- not the order the bot happened to notice them.
+- **Skip a pile of old news:** run the "Clear backlog" workflow once
+  (Actions tab -> Clear backlog -> Run workflow) -- see "Clearing a
+  backlog" below.
 - **Add/remove/edit news outlets:** see the next section.
 
 Note: checking more often does not mean more Discord messages by itself --
@@ -180,16 +183,40 @@ This also means: if the CI cache holding `alerts/state` is ever evicted or
 lost, the next run quietly re-seeds instead of flooding the channel -- no
 harm done, just a silent reset of what counts as "already seen".
 
-## Scheduling (GitHub Actions)
+## Scheduling
 
 This repo is public, so GitHub Actions minutes are free and unlimited.
 `.github/workflows/poll.yml` runs `python -m alerts.run --sinks discord`
-every 10 minutes (`workflow_dispatch` is also enabled for manual runs) and
-persists `alerts/state` between runs via `actions/cache`.
+and persists `alerts/state` between runs via `actions/cache`.
 
-**Gotcha:** GitHub automatically disables scheduled workflows after 60 days
-of repo inactivity. Any commit (or manually re-enabling the workflow under
-the Actions tab) revives it.
+It does **not** use GitHub's own `schedule:` cron trigger -- that was tried
+first, but proved unreliable (it went several hours without firing at all
+for no visible reason, with no way to diagnose it from outside GitHub).
+Instead, the workflow only has `workflow_dispatch` (button-only / API
+trigger), and something outside this repo calls that once an hour on a
+reliable timer. There should only be **one** thing calling it regularly --
+if more than one timer is running (e.g. a fast one and an hourly one at the
+same time), their runs queue up behind each other (see "Dedupe & state"
+below on the concurrency lock) and can end up executing an older, already-
+superseded version of the code just because that's what was checked out
+when they were triggered. Ask whoever set up your hourly trigger before
+adding a second one.
+
+**Gotcha:** GitHub automatically disables workflows after 60 days of repo
+inactivity. Any commit (or manually re-enabling the workflow under the
+Actions tab) revives it.
+
+## Clearing a backlog
+
+If the bot goes quiet for a while (paused, misconfigured secret, GitHub
+outage, etc.), new events pile up unposted -- and since pacing never
+carries anything into the next run, the very next run would post all of
+them at once (bundled a few per message as needed) rather than losing any.
+If you'd rather just skip that pile of now-stale news than have it
+delivered late, run `.github/workflows/clear-backlog.yml` once (Actions
+tab -> Clear backlog -> Run workflow): it marks everything currently
+pending as "seen" without posting it, so the next normal run only picks up
+things that happen from that point on.
 
 ## Source notes
 
