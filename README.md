@@ -185,22 +185,29 @@ articles between the two merge into one event, not posted twice.
 
 This leans on an outlet's own editors to decide what's "important"
 instead of us guessing with a keyword list -- no tuning required when it
-works. It only works when a real curated feed exists, though: NYT's
-`HomePage.xml` genuinely is smaller/more selective than its `World.xml`;
-BBC, Al Jazeera, Guardian, and NPR were all checked and none had a real
-equivalent (Guardian and NPR were dropped entirely as a result -- their
-"curated" candidates turned out no smaller than the full feed). Where no
-curated feed exists, an outlet's regular section feed notifies directly
-instead, as the best available stand-in.
+works. It only works when a real curated feed exists, though: BBC, Al
+Jazeera, Guardian, and NPR were all checked and none had a real one
+(Guardian and NPR were dropped entirely as a result -- their "curated"
+candidates turned out no smaller than the full feed). Where no curated
+feed exists, an outlet's regular section feed notifies directly instead,
+as the best available stand-in -- including NYT now, which was switched
+from its (genuinely curated, but not regional) `HomePage.xml` to its
+`US.xml` section feed once NYT became a regional rather than world source
+(see next section) -- regional accuracy took priority over curation
+quality for that one.
 
 ### Regional outlets and cross-outlet duplicates
 
-Beyond the general-purpose BBC/CNN/NYT feeds, `feeds.yaml` also lists one
-or two feeds per world region (South America, Europe, Russia, China,
-India, Middle East, East/Southeast Asia, Oceania, Africa) so the bot isn't
-only reporting through a US/UK lens. New regional additions start
-`prod: false` (dev-channel only) until reviewed -- see "Dev vs. prod
-Discord channels" below.
+Only BBC, CNN, and Al Jazeera are meant to carry general world news --
+they stay on each outlet's "World"/top-stories feed on purpose. Every
+other source in `feeds.yaml` is deliberately pointed at that outlet's own
+*regional* section (e.g. SCMP's China section, not its World section;
+Euronews' "My Europe" feed, not its general home feed) so the bot covers
+South America, Europe, Russia, China, India, the Middle East, East/
+Southeast Asia, Oceania, and Africa through their own regional lens
+instead of everything being filtered through a US/UK "World desk" view.
+New regional additions start `prod: false` (dev-channel only) until
+reviewed -- see "Dev vs. prod Discord channels" below.
 
 More outlets covering the same world raises an obvious problem: a single
 big story (a major earthquake, a war escalation) can get covered by every

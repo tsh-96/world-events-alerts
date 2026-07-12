@@ -24,13 +24,24 @@
 # significant instead of us guessing at keywords -- see README "Filtering
 # what gets sent to Discord".
 #
-# Verified against each outlet's actual feed contents (open a feed URL
-# directly in a browser to see its raw items) as of when each was added:
-#   - NYT: HomePage.xml is genuinely smaller/curated than World.xml (top
-#     picks vs. every article).
-#   - BBC: no distinct curated feed exists -- World.xml notifies directly
-#     as the best available stand-in for "top world stories" from BBC.
-#   - Al Jazeera: no curated feed found -- archived only for now.
+# Only BBC, CNN, and Al Jazeera are meant to carry general WORLD news.
+# Every other source should be that region's own regional/local news, not
+# its "World" section (which is usually that outlet's foreign-affairs desk
+# -- the opposite of regional). Verified against each outlet's actual feed
+# contents (open a feed URL directly in a browser to see its raw items) as
+# of when each was added:
+#   - NYT: switched from World.xml/HomePage.xml to US.xml -- genuinely
+#     North-America-regional now, at the cost of the curation HomePage.xml
+#     had (HomePage mixed in world/opinion/lifestyle content).
+#   - BBC: world-focused on purpose (one of the three exceptions above) --
+#     no distinct curated feed exists, so World.xml notifies directly.
+#   - Al Jazeera: world-focused on purpose (exception) -- no curated feed
+#     found, archived only for now regardless.
+#   - SCMP: switched from the World section to the China section.
+#   - Euronews: switched to the "My Europe" theme feed instead of the
+#     general/world-mixed home feed.
+#   - Times of India: switched from the World section to their top-stories
+#     feed (India-dominated, since ToI's own top stories are India news).
 #   - Guardian, NPR: removed entirely after checking -- their "curated"
 #     candidates were no smaller/more selective than the full feed.
 #
@@ -44,21 +55,10 @@
 # their RSS paths without notice.
 
 feeds:
-  # --- Previously live, pending re-approval for prod ---
+  # --- World news (deliberate exceptions -- these three stay general) ---
 
   - slug: bbc
     url: https://feeds.bbci.co.uk/news/world/rss.xml
-    kind: news
-    notify: true
-    prod: false
-
-  - slug: nyt
-    url: https://rss.nytimes.com/services/xml/rss/nyt/World.xml
-    kind: news
-    notify: false
-
-  - slug: nyt
-    url: https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml   # Home Page (top stories)
     kind: news
     notify: true
     prod: false
@@ -71,10 +71,16 @@ feeds:
     kind: news
     notify: false
 
-  # --- New regional candidates, dev-only until reviewed ---
-
   - slug: cnn
     url: http://rss.cnn.com/rss/cnn_topstories.rss
+    kind: news
+    notify: true
+    prod: false
+
+  # --- Regional news, dev-only until reviewed ---
+
+  - slug: nyt
+    url: https://rss.nytimes.com/services/xml/rss/nyt/US.xml
     kind: news
     notify: true
     prod: false
@@ -86,7 +92,7 @@ feeds:
     prod: false
 
   - slug: euronews
-    url: https://www.euronews.com/rss
+    url: https://www.euronews.com/rss?level=theme&name=my-europe
     kind: news
     notify: true
     prod: false
@@ -98,13 +104,13 @@ feeds:
     prod: false
 
   - slug: scmp
-    url: https://www.scmp.com/rss/5/feed   # World section
+    url: https://www.scmp.com/rss/4/feed   # China section
     kind: news
     notify: true
     prod: false
 
   - slug: times-of-india
-    url: https://timesofindia.indiatimes.com/rssfeeds/296589292.cms   # World section
+    url: https://timesofindia.indiatimes.com/rssfeedstopstories.cms   # Top stories, India-dominated
     kind: news
     notify: true
     prod: false
