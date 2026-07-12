@@ -80,11 +80,24 @@ def run(sink_names: list[str], dry_run: bool) -> None:
         new_events = store.filter_unseen(events)
         logger.info("%d new event(s) after dedupe", len(new_events))
 
+        delivered_ids = None
         for sink_name in sink_names:
             sink = SINKS[sink_name]
-            sink.send(new_events)
+            delivered = sink.send(new_events)
+            ids = {event["id"] for event in delivered}
+            delivered_ids = ids if delivered_ids is None else (delivered_ids & ids)
 
-        store.mark_seen(new_events)
+        # Only mark an event "seen" once every requested sink actually
+        # delivered it -- a failed Discord batch must not make an event
+        # disappear from future polls before it's ever been posted.
+        confirmed = [e for e in new_events if delivered_ids and e["id"] in delivered_ids]
+        if len(confirmed) < len(new_events):
+            logger.warning(
+                "%d of %d new event(s) were not confirmed delivered and will be retried next run",
+                len(new_events) - len(confirmed),
+                len(new_events),
+            )
+        store.mark_seen(confirmed)
 
 
 def main() -> None:

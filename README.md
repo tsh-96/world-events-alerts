@@ -177,6 +177,13 @@ A SQLite store (`alerts/state/seen.sqlite3`, table `seen(id, first_seen)`)
 tracks every event id ever emitted. An event reaches a sink only the first
 time its id is seen. Entries older than 30 days are pruned automatically.
 
+An event is only recorded as "seen" once every requested sink confirms it
+was actually delivered -- each sink's `send()` returns the subset of
+events it managed to send, and only that subset gets marked. If Discord
+rejects a batch (rate limit, a malformed message, a network blip), those
+events stay eligible and are retried on the next poll instead of silently
+vanishing.
+
 v1 does not detect in-place updates to an already-seen event (e.g. USGS
 revising a magnitude) -- same id means "already handled". See the comment
 in `alerts/dedupe.py` for where update-handling would go if needed later.
