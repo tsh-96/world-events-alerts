@@ -266,10 +266,14 @@ even for an event that reaches both.
 
 Dev's pacing can be overridden independently of prod's via
 `DISCORD_DEV_MIN_INTERVAL_SECONDS` / `DISCORD_DEV_PACE_WINDOW_MINUTES` (set
-in `poll.yml`) -- useful for clearing a big one-off catch-up batch in dev
-quickly instead of waiting out the normal human-paced timing. Prod always
+in `poll.yml`) -- e.g. set both very low (currently `1`/`1`) to have dev
+dump everything from an hourly run basically all at once, which is handy
+while sources are actively being reviewed there and you'd rather see
+everything immediately than wait out human-paced spacing. Prod always
 uses the normal `DISCORD_PACE_WINDOW_MINUTES`/4-minute settings regardless
-of what dev's overrides are set to.
+of what dev's overrides are set to -- delete/comment out the two dev
+override lines in `poll.yml` to bring dev back to normal paced timing
+later.
 
 If you only want one channel, just set `DISCORD_WEBHOOK_URL` -- everything
 notable posts there and prod-tier filtering never comes into play. Set
