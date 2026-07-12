@@ -21,6 +21,10 @@ SOURCE = "gdacs"
 
 DEFAULT_FEED_URL = "https://www.gdacs.org/xml/rss.xml"
 REQUEST_TIMEOUT_SECONDS = 15
+# Alert level 1=Green (minor, no significant impact expected), 2=Orange,
+# 3=Red. Green fires constantly worldwide (satellite-detected, mostly
+# agricultural/minor burns) and drowns out everything else if not filtered.
+DEFAULT_MIN_SEVERITY = 1
 
 # gdacs:eventtype -> our kind. Deliberately overlaps with USGS for EQ: the
 # two sources use different, non-colliding ids, so both are kept (see
@@ -42,7 +46,7 @@ ALERT_LEVEL_TO_SEVERITY = {
 }
 
 
-def fetch(feed_url: str = DEFAULT_FEED_URL) -> list[dict]:
+def fetch(feed_url: str = DEFAULT_FEED_URL, min_severity: int = DEFAULT_MIN_SEVERITY) -> list[dict]:
     try:
         response = requests.get(
             feed_url,
@@ -62,8 +66,11 @@ def fetch(feed_url: str = DEFAULT_FEED_URL) -> list[dict]:
         except Exception:
             logger.exception("gdacs: failed to normalize entry %r", entry.get("id"))
             continue
-        if event is not None:
-            events.append(event)
+        if event is None:
+            continue
+        if event["severity"] is not None and event["severity"] < min_severity:
+            continue
+        events.append(event)
     return events
 
 
