@@ -39,10 +39,9 @@
 #   - NYT: switched from World.xml/HomePage.xml to US.xml -- genuinely
 #     North-America-regional now, at the cost of the curation HomePage.xml
 #     had (HomePage mixed in world/opinion/lifestyle content).
-#   - BBC: world-focused on purpose (one of the three exceptions above) --
-#     no distinct curated feed exists, so World.xml notifies directly.
-#   - Al Jazeera: world-focused on purpose (exception) -- no curated feed
-#     found, archived only for now regardless.
+#   - BBC, Al Jazeera: world-focused on purpose (two of the three
+#     exceptions above) -- no distinct curated feed exists for either, so
+#     their single all-inclusive feed notifies directly, same as CNN.
 #   - SCMP: switched from the World section to the China section.
 #   - Euronews: switched to the "My Europe" theme feed instead of the
 #     general/world-mixed home feed.
@@ -69,13 +68,13 @@ feeds:
     notify: true
     prod: false
 
-  # No distinct "top stories only" feed found for Al Jazeera -- only the
-  # full section feed below, so it doesn't notify anywhere right now
-  # (still fetched and kept for the archive/website).
+  # No distinct "top stories only" feed found for Al Jazeera -- notifies
+  # directly off its single all-inclusive feed, same as BBC/CNN.
   - slug: al-jazeera
     url: https://www.aljazeera.com/xml/rss/all.xml
     kind: news
-    notify: false
+    notify: true
+    prod: false
 
   - slug: cnn
     url: http://rss.cnn.com/rss/cnn_topstories.rss
