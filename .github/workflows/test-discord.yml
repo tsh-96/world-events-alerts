@@ -1,0 +1,26 @@
+name: Send test Discord message
+
+# Manual-only: click "Run workflow" on this workflow in the Actions tab to
+# post a single test message and confirm DISCORD_WEBHOOK_URL is wired up
+# correctly. Does not touch the real dedupe state or count as a poll cycle.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Send test message
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: python scripts/send_test_message.py

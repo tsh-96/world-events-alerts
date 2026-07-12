@@ -141,3 +141,15 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Local dedupe state (persisted between CI runs via actions/cache instead)
+alerts/state/*.sqlite3
+alerts/state/*.json
+alerts/state/rss_cache.json
