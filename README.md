@@ -82,6 +82,7 @@ Useful env vars:
 | `GDACS_FEED_URL` | GDACS feed URL override |
 | `GDACS_MIN_SEVERITY` | minimum GDACS alert level that triggers an alert -- `1`=Green, `2`=Orange, `3`=Red (default `1`, i.e. unfiltered; the live bot runs with `2` since Green fires constantly worldwide, mostly minor satellite-detected wildfires) |
 | `DISCORD_WEBHOOK_URL` | Discord webhook URL -- **secret**, see below |
+| `DISCORD_PACE_WINDOW_MINUTES` | when several new events post at once, spread them across this many minutes instead of firing them all within seconds (default `45`; a single new event always posts immediately, no wait) |
 
 ## Changing settings on the live bot (no coding needed)
 
@@ -99,6 +100,11 @@ in the GitHub website (open the file, click the pencil/edit icon, save):
 - **Disaster severity:** `GDACS_MIN_SEVERITY` -- `1` (Green) includes every
   minor event, `2` (Orange) skips low-significance ones, `3` (Red) only
   major disasters.
+- **Message pacing:** `DISCORD_PACE_WINDOW_MINUTES` -- if a check finds
+  several new events at once (e.g. after a quiet stretch), they're spread
+  out over this many minutes instead of landing in one burst. Keep it a
+  little under the check frequency so one check's messages finish posting
+  before the next check's results start arriving.
 - **Add/remove/edit news outlets:** see the next section.
 
 Note: checking more often does not mean more Discord messages by itself --
