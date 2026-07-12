@@ -23,4 +23,4 @@ jobs:
       - name: Send test message
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: python scripts/send_test_message.py
+        run: python -m scripts.send_test_message
