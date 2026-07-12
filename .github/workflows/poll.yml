@@ -9,17 +9,16 @@
 #     2=Orange, 3=Red; Green fires constantly worldwide and is skipped).
 #   Message pacing: DISCORD_PACE_WINDOW_MINUTES (currently 45) -- when a
 #     check finds several new events at once, they post at randomized
-#     moments (never less than 8 minutes apart) spread across roughly this
-#     many minutes, instead of all at once. That 8-minute minimum also
+#     moments (never less than 4 minutes apart) spread across roughly this
+#     many minutes, instead of all at once. That 4-minute minimum also
 #     applies across separate checks (not just within one), so two checks
-#     firing close together never post two messages within a few minutes of
-#     each other -- Discord visually merges same-webhook messages posted
-#     within ~7 minutes of each other, so 8 keeps every message looking
-#     separate. If there are more new events than fit in the budget at that
+#     firing close together won't both post the instant they see something
+#     new. If there are more new events than fit in the budget at that
 #     minimum spacing, the extras are left for the next check rather than
 #     stretching this run out further. Keep the budget a bit below the
 #     check frequency above (e.g. under 60 min if checks are hourly) so one
-#     check finishes before the next begins.
+#     check finishes before the next begins. Events always post in the
+#     order they happened (oldest first), not the order they were noticed.
 #   Add/remove/edit news feeds: edit alerts/config/feeds.yaml instead.
 #   Post to more than one Discord channel: add a DISCORD_WEBHOOK_URL_2 repo
 #     secret (DISCORD_WEBHOOK_URL_3, etc. for more) and uncomment/add the
@@ -42,7 +41,7 @@ concurrency:
 jobs:
   poll:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
 

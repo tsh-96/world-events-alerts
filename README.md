@@ -83,7 +83,7 @@ Useful env vars:
 | `GDACS_FEED_URL` | GDACS feed URL override |
 | `GDACS_MIN_SEVERITY` | minimum GDACS alert level that triggers an alert -- `1`=Green, `2`=Orange, `3`=Red (default `1`, i.e. unfiltered; the live bot runs with `2` since Green fires constantly worldwide, mostly minor satellite-detected wildfires) |
 | `DISCORD_WEBHOOK_URL` | Discord webhook URL -- **secret**, see below |
-| `DISCORD_PACE_WINDOW_MINUTES` | when several new events post at once, spread them at randomized moments (never less than 8 minutes apart) across roughly this many minutes instead of firing them all within seconds (default `45`; that same 8-minute minimum also applies to the very next post after any earlier check's last post -- even a single new event on its own waits out the rest of that gap rather than always posting instantly; any events beyond what the budget can fit at the minimum spacing are left for the next check) |
+| `DISCORD_PACE_WINDOW_MINUTES` | when several new events post at once, spread them at randomized moments (never less than 4 minutes apart) across roughly this many minutes instead of firing them all within seconds (default `45`; that same 4-minute minimum also applies to the very next post after any earlier check's last post -- even a single new event on its own waits out the rest of that gap rather than always posting instantly; any events beyond what the budget can fit at the minimum spacing are left for the next check) |
 
 ## Changing settings on the live bot (no coding needed)
 
@@ -103,20 +103,21 @@ in the GitHub website (open the file, click the pencil/edit icon, save):
   major disasters.
 - **Message pacing:** `DISCORD_PACE_WINDOW_MINUTES` -- if a check finds
   several new events at once (e.g. after a quiet stretch), they post at
-  randomized moments (never less than 8 minutes apart, never more than 15)
+  randomized moments (never less than 4 minutes apart, never more than 10)
   spread across roughly this many minutes, instead of landing in one burst.
-  That 8-minute minimum isn't just within one check -- it also covers the
+  That 4-minute minimum isn't just within one check -- it also covers the
   gap since the *previous* check's last post, so even a single new event
   found on its own waits out the rest of that gap instead of always firing
-  instantly. This is what stops two checks that happen to run close
-  together (e.g. the normal schedule and a backup timer both catching a
-  new event within a minute of each other) from posting two messages close
-  enough together that Discord visually merges them into what looks like
-  one message. If there are more new events than fit at that minimum
-  spacing, the extras simply wait and get posted (and re-paced) on the next
-  check -- nothing is lost, just deferred. Keep the budget a little under
-  the check frequency so one check's messages finish posting before the
-  next check's results start arriving.
+  instantly. This stops two checks that happen to run close together (e.g.
+  the normal schedule and a backup timer both catching a new event within a
+  minute of each other) from posting two messages right on top of each
+  other. If there are more new events than fit at that minimum spacing, the
+  extras simply wait and get posted (and re-paced) on the next check --
+  nothing is lost, just deferred. Keep the budget a little under the check
+  frequency so one check's messages finish posting before the next check's
+  results start arriving. Messages always post oldest-first, in the order
+  the events actually happened -- not the order the bot happened to notice
+  them.
 - **Add/remove/edit news outlets:** see the next section.
 
 Note: checking more often does not mean more Discord messages by itself --
