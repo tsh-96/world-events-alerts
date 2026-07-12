@@ -15,6 +15,12 @@
 #           true. New sources start prod: false (dev-only, on trial) --
 #           flip to prod: true once you're happy with what it's been
 #           posting to dev. See README "Dev vs. prod Discord channels".
+#   exclude_if_title_contains: optional list of substrings (case-
+#           insensitive) -- an item whose title contains any of them is
+#           skipped entirely (never becomes an event at all, not even
+#           archived). For recurring non-article posts a feed mixes in
+#           alongside real headlines (digests, bulletins, live-blog
+#           wrap-ups), not real article content worth keeping either way.
 #
 # An outlet can list two feeds under the same slug: its full section feed
 # (notify: false -- every article, kept for the archive/website only) and
@@ -98,11 +104,15 @@ feeds:
   # global outlet with a separate "World" desk like BBC/CNN), so its
   # general feed is likely already Europe-centric in practice, similar to
   # how Moscow Times' and Africanews' general feeds work for their regions.
+  # exclude_if_title_contains: filters out recurring roundup posts like
+  # "Latest news bulletin | July 12th, 2026 - Midday" -- not real articles.
   - slug: euronews
     url: https://www.euronews.com/rss
     kind: news
     notify: true
     prod: false
+    exclude_if_title_contains:
+      - "news bulletin"
 
   - slug: moscow-times
     url: https://www.themoscowtimes.com/rss/news

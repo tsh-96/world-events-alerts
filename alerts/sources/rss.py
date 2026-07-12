@@ -50,12 +50,13 @@ def fetch(
         kind = feed_cfg.get("kind", DEFAULT_KIND)
         notify = bool(feed_cfg.get("notify", False))
         prod = bool(feed_cfg.get("prod", False))
+        exclude_patterns = [p.lower() for p in feed_cfg.get("exclude_if_title_contains", [])]
         if not slug or not url:
             logger.warning("rss: skipping malformed feed config entry: %r", feed_cfg)
             continue
 
         try:
-            feed_events = _fetch_one_feed(slug, url, kind, notify, prod, cache)
+            feed_events = _fetch_one_feed(slug, url, kind, notify, prod, exclude_patterns, cache)
         except Exception:
             logger.exception("rss: failed to fetch feed %s (%s)", slug, url)
             continue
@@ -77,7 +78,15 @@ def fetch(
     return list(events_by_id.values())
 
 
-def _fetch_one_feed(slug: str, url: str, kind: str, notify: bool, prod: bool, cache: dict) -> list[dict]:
+def _fetch_one_feed(
+    slug: str,
+    url: str,
+    kind: str,
+    notify: bool,
+    prod: bool,
+    exclude_patterns: list[str],
+    cache: dict,
+) -> list[dict]:
     # Cached by URL, not slug -- an outlet can have more than one feed URL
     # sharing a slug, and each needs its own independent conditional-GET
     # cache entry.
@@ -107,7 +116,7 @@ def _fetch_one_feed(slug: str, url: str, kind: str, notify: bool, prod: bool, ca
     events = []
     for item in parsed.entries:
         try:
-            event = _normalize_item(slug, kind, notify, prod, item)
+            event = _normalize_item(slug, kind, notify, prod, exclude_patterns, item)
         except Exception:
             logger.exception("rss: failed to normalize item from %s: %r", slug, item.get("link"))
             continue
@@ -116,10 +125,17 @@ def _fetch_one_feed(slug: str, url: str, kind: str, notify: bool, prod: bool, ca
     return events
 
 
-def _normalize_item(slug: str, kind: str, notify: bool, prod: bool, item) -> dict | None:
+def _normalize_item(
+    slug: str, kind: str, notify: bool, prod: bool, exclude_patterns: list[str], item
+) -> dict | None:
     native_id = item.get("id") or item.get("link")
     if not native_id:
         logger.warning("rss: %s item has no guid/id/link, skipping", slug)
+        return None
+
+    raw_title = item.get("title") or ""
+    if exclude_patterns and any(pattern in raw_title.lower() for pattern in exclude_patterns):
+        logger.info("rss: %s item %r matched an exclude pattern, skipping", slug, raw_title)
         return None
 
     # feedparser usually turns a pubDate into published_parsed/updated_parsed
