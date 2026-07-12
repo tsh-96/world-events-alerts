@@ -83,6 +83,7 @@ def run(sink_names: list[str], dry_run: bool) -> None:
             return
 
         new_events = store.filter_unseen(events)
+        new_events.sort(key=lambda event: event["time_utc"])
         logger.info("%d new event(s) after dedupe", len(new_events))
 
         delivered_ids = None

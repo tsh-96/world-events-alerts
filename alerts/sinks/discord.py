@@ -44,21 +44,22 @@ MAX_PLACE_CHARS = 100
 # Tune the budget to stay comfortably under the workflow's job timeout (see
 # .github/workflows/poll.yml).
 #
-# PACE_MIN_INTERVAL_SECONDS is also the *cross-run* minimum gap: Discord's
-# own UI visually merges consecutive messages from the same webhook (no
-# repeated name/avatar) when they land within roughly 7 minutes of each
-# other, regardless of which workflow run posted them. A single new event
-# found on its own would otherwise post immediately with no pacing at all,
-# so if two separate checks (e.g. the normal schedule and a backup trigger)
-# each find one new event a minute apart, both used to fire right away and
-# look merged in Discord. The last successful post time is now persisted
-# (see LAST_POST_STATE_FILENAME) so even a lone event waits out the rest of
-# this gap since the previous check's last post, not just gaps *within* one
-# run's batch. The value is set above Discord's ~7 minute grouping window
-# with a safety margin for clock/network jitter.
+# PACE_MIN_INTERVAL_SECONDS is also the *cross-run* minimum gap: a single
+# new event found on its own would otherwise post immediately with no
+# pacing at all, so if two separate checks (e.g. the normal schedule and a
+# backup trigger) each find one new event a minute apart, both used to fire
+# right away. The last successful post time is now persisted (see
+# LAST_POST_STATE_FILENAME) so even a lone event waits out the rest of this
+# gap since the previous check's last post, not just gaps *within* one
+# run's batch. Note: Discord's own UI visually merges consecutive messages
+# from the same webhook (no repeated name/avatar) when they land within
+# roughly 7 minutes of each other -- at a 4 minute floor that can still
+# happen occasionally on the tightest gaps, traded off deliberately here
+# for faster backlog throughput (a higher floor means fewer messages fit
+# per hour).
 DEFAULT_PACE_BUDGET_MINUTES = 45
-PACE_MIN_INTERVAL_SECONDS = 480
-PACE_MAX_INTERVAL_SECONDS = 900
+PACE_MIN_INTERVAL_SECONDS = 240
+PACE_MAX_INTERVAL_SECONDS = 600
 
 COLOR_BY_KIND = {
     "earthquake": 0xE74C3C,  # red
