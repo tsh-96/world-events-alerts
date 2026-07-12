@@ -127,15 +127,12 @@ feeds:
     prod: false
 
   # TEMP: ToI's "top stories" feed produced too much genuine (non-
-  # duplicate) volume -- trying two more selective alternatives instead,
-  # notify:false on both until we compare and pick one.
-  - slug: the-hindu-try
-    url: https://thehindu.com/feeder/default.rss
-    kind: news
-    notify: false
-
-  - slug: hindustan-times-try
-    url: https://www.hindustantimes.com/rss/topnews/rssfeed.xml
+  # duplicate) volume. The Hindu was worse (60 items, even more than ToI's
+  # 45), Hindustan Times' topnews feed returned nothing (likely a dead/
+  # outdated path). Trying NDTV as a third candidate, notify:false until
+  # compared.
+  - slug: ndtv-try
+    url: https://feeds.feedburner.com/NDTV-LatestNews
     kind: news
     notify: false
 
