@@ -147,6 +147,18 @@ The bot posts through a Discord webhook. Create one in your target channel
 It is exposed to the scheduled workflow as an env var and is **never**
 committed, logged, or echoed anywhere -- this repo is public.
 
+### Posting to more than one channel/server
+
+Create a webhook in the second channel the same way, then add it as a
+second secret named `DISCORD_WEBHOOK_URL_2` (repeat with `_3`, `_4`, ... for
+further channels). Every configured webhook receives the exact same feed,
+in the same order, with the same pacing -- an event only counts as
+delivered once every configured webhook has it, so a temporarily-broken
+channel doesn't cause events to be lost, just retried on the next check.
+Adding a channel never replays old events: the dedupe store already knows
+what's been seen, so a newly added channel joins the live stream from that
+point on with no backlog dump.
+
 ## First-run seeding behavior
 
 The first time the bot runs against an empty state store, posting every
