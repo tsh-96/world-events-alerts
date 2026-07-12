@@ -7,6 +7,12 @@
 #     only earthquakes at or above this size get posted).
 #   Disaster severity filter: GDACS_MIN_SEVERITY (currently 2 -- 1=Green,
 #     2=Orange, 3=Red; Green fires constantly worldwide and is skipped).
+#   Message pacing: DISCORD_PACE_WINDOW_MINUTES (currently 45) -- when a
+#     check finds several new events at once, they're spread out over this
+#     many minutes instead of posted all at once. Keep this a bit below the
+#     check frequency above (e.g. under 60 min if checks are hourly) so
+#     everything from one check finishes posting before the next check's
+#     results start arriving.
 #   Add/remove/edit news feeds: edit alerts/config/feeds.yaml instead.
 name: Poll world events
 
@@ -15,10 +21,17 @@ on:
     - cron: "*/10 * * * *"
   workflow_dispatch: {}
 
+concurrency:
+  # If a check is still running (e.g. mid-way through pacing out messages)
+  # when the next one is triggered, queue it instead of running both at
+  # once -- avoids two runs racing on the same dedupe state.
+  group: poll-world-events
+  cancel-in-progress: false
+
 jobs:
   poll:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
 
@@ -45,6 +58,7 @@ jobs:
           ENABLE_RSS: "true"
           USGS_MIN_MAGNITUDE: "4.5"
           GDACS_MIN_SEVERITY: "2"
+          DISCORD_PACE_WINDOW_MINUTES: "45"
         run: python -m alerts.run --sinks discord
 
       - name: Save state cache
