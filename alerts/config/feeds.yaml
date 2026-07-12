@@ -91,11 +91,23 @@ feeds:
     notify: true
     prod: false
 
-  - slug: euronews
-    url: https://www.euronews.com/rss?level=theme&name=my-europe
+  # TEMP: trying multiple candidate URLs to find the real "My Europe"
+  # section feed -- notify:false on all of these until one is confirmed
+  # working, then this collapses back to a single entry.
+  - slug: euronews-try1
+    url: https://www.euronews.com/rss?level=theme&name=europe
     kind: news
-    notify: true
-    prod: false
+    notify: false
+
+  - slug: euronews-try2
+    url: https://www.euronews.com/my-europe/rss.xml
+    kind: news
+    notify: false
+
+  - slug: euronews-try3
+    url: https://www.euronews.com/rss?format=mrss&level=theme&name=my-europe
+    kind: news
+    notify: false
 
   - slug: moscow-times
     url: https://www.themoscowtimes.com/rss/news
