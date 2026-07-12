@@ -1,3 +1,11 @@
+# --- Easy settings you can edit right here, no code changes needed ---
+#   Check frequency: edit the cron line below (e.g. "*/5 * * * *" = every 5
+#     min, "*/30 * * * *" = every 30 min, "0 * * * *" = every hour).
+#   Turn a source on/off: change ENABLE_USGS / ENABLE_GDACS / ENABLE_RSS to
+#     "true" or "false" below.
+#   Earthquake filter: raise/lower USGS_MIN_MAGNITUDE (currently 4.5 --
+#     only earthquakes at or above this size get posted).
+#   Add/remove/edit news feeds: edit alerts/config/feeds.yaml instead.
 name: Poll world events
 
 on:
@@ -30,6 +38,10 @@ jobs:
       - name: Poll sources and post to Discord
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          ENABLE_USGS: "true"
+          ENABLE_GDACS: "true"
+          ENABLE_RSS: "true"
+          USGS_MIN_MAGNITUDE: "4.5"
         run: python -m alerts.run --sinks discord
 
       - name: Save state cache

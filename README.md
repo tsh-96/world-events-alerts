@@ -76,10 +76,31 @@ Useful env vars:
 | var | purpose |
 |-----|---------|
 | `ALERTS_STATE_DIR` | override where the dedupe DB / RSS cache live (default `alerts/state`) |
+| `ENABLE_USGS` / `ENABLE_GDACS` / `ENABLE_RSS` | turn a whole source on/off (`"true"`/`"false"`, default on) |
 | `USGS_FEED_URL` | USGS feed to poll (default `all_hour.geojson`; e.g. swap to `2.5_day.geojson` for a calmer feed) |
-| `USGS_MIN_MAGNITUDE` | minimum magnitude that triggers an alert (default `0`) |
+| `USGS_MIN_MAGNITUDE` | minimum earthquake magnitude that triggers an alert (default `0`, i.e. unfiltered; the live bot runs with `4.5`) |
 | `GDACS_FEED_URL` | GDACS feed URL override |
 | `DISCORD_WEBHOOK_URL` | Discord webhook URL -- **secret**, see below |
+
+## Changing settings on the live bot (no coding needed)
+
+Everything below lives in `.github/workflows/poll.yml`, in the "Easy
+settings" comment block at the top of the file, and can be edited straight
+in the GitHub website (open the file, click the pencil/edit icon, save):
+
+- **How often it checks:** the `cron: "*/10 * * * *"` line. `*/10` means
+  every 10 minutes; change the number (GitHub won't reliably run more often
+  than every 5 minutes, so `*/5` is the practical fastest setting).
+- **Turn a source off:** change `ENABLE_USGS`, `ENABLE_GDACS`, or
+  `ENABLE_RSS` from `"true"` to `"false"`.
+- **Earthquake sensitivity:** `USGS_MIN_MAGNITUDE` -- raise it to hear
+  about only bigger quakes, lower it to hear about more (smaller) ones.
+- **Add/remove/edit news outlets:** see the next section.
+
+Note: checking more often does not mean more Discord messages by itself --
+the bot only ever posts something the first time it sees a genuinely new
+event (see "Dedupe & state" below). The check frequency only controls how
+quickly a new event is noticed, not how much gets posted.
 
 ## Adding an RSS news feed
 

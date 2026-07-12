@@ -29,6 +29,11 @@ SINKS = {
 }
 
 
+def _enabled(env_var: str) -> bool:
+    """Simple on/off switch for a source, e.g. ENABLE_USGS=false. Defaults on."""
+    return os.environ.get(env_var, "true").strip().lower() not in ("false", "0", "no")
+
+
 def collect_events() -> list[dict]:
     """Fetch and normalize events from every enabled source. One dead feed
     must never kill the whole run -- each source module already guards its
@@ -36,16 +41,25 @@ def collect_events() -> list[dict]:
     from alerts.sources import gdacs, rss, usgs
 
     events: list[dict] = []
-    events.extend(
-        usgs.fetch(
-            feed_url=os.environ.get("USGS_FEED_URL", usgs.DEFAULT_FEED_URL),
-            min_magnitude=float(
-                os.environ.get("USGS_MIN_MAGNITUDE", usgs.DEFAULT_MIN_MAGNITUDE)
-            ),
+
+    if _enabled("ENABLE_USGS"):
+        events.extend(
+            usgs.fetch(
+                feed_url=os.environ.get("USGS_FEED_URL", usgs.DEFAULT_FEED_URL),
+                min_magnitude=float(
+                    os.environ.get("USGS_MIN_MAGNITUDE", usgs.DEFAULT_MIN_MAGNITUDE)
+                ),
+            )
         )
-    )
-    events.extend(gdacs.fetch(feed_url=os.environ.get("GDACS_FEED_URL", gdacs.DEFAULT_FEED_URL)))
-    events.extend(rss.fetch(cache_path=STATE_DIR / "rss_cache.json"))
+
+    if _enabled("ENABLE_GDACS"):
+        events.extend(
+            gdacs.fetch(feed_url=os.environ.get("GDACS_FEED_URL", gdacs.DEFAULT_FEED_URL))
+        )
+
+    if _enabled("ENABLE_RSS"):
+        events.extend(rss.fetch(cache_path=STATE_DIR / "rss_cache.json"))
+
     return events
 
 
