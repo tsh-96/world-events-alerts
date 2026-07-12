@@ -1,0 +1,14 @@
+# Generic RSS/Atom news feeds. Adding a new source is config here, not code
+# -- see alerts/sources/rss.py for how each field is used.
+#
+#   slug: short unique identifier, used as part of each event's id
+#   url:  the feed URL
+#   kind: EVENT "kind" for every item from this feed (defaults to "news")
+#
+# Verify a feed's URL still resolves before adding it -- outlets change
+# their RSS paths without notice.
+
+feeds:
+  - slug: bbc-world
+    url: https://feeds.bbci.co.uk/news/world/rss.xml
+    kind: news

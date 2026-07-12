@@ -31,7 +31,7 @@ def collect_events() -> list[dict]:
     """Fetch and normalize events from every enabled source. One dead feed
     must never kill the whole run -- each source module already guards its
     own network calls and returns [] on failure."""
-    from alerts.sources import gdacs, usgs
+    from alerts.sources import gdacs, rss, usgs
 
     events: list[dict] = []
     events.extend(
@@ -43,6 +43,7 @@ def collect_events() -> list[dict]:
         )
     )
     events.extend(gdacs.fetch(feed_url=os.environ.get("GDACS_FEED_URL", gdacs.DEFAULT_FEED_URL)))
+    events.extend(rss.fetch(cache_path=STATE_DIR / "rss_cache.json"))
     return events
 
 
