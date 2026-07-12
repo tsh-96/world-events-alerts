@@ -1,14 +1,18 @@
-"""Cross-outlet duplicate-story suppression.
+"""Duplicate-story suppression, within one outlet and across outlets.
 
-Dedupe elsewhere in this codebase (alerts/dedupe.py) is per-article: BBC's
-write-up of a story and CNN's write-up of the *same real-world story* have
-different URLs/ids, so they're two unrelated events as far as that store
-is concerned. As more outlets get added, a single big story (e.g. a major
-earthquake or a war escalation) can trigger one Discord notification per
-outlet covering it -- this module catches that specific case: if a new
-notable event's headline looks like the same story as one we recently
-notified about (from a *different* outlet), it's suppressed here (still
-archived/marked seen as usual, just not posted again).
+Dedupe elsewhere in this codebase (alerts/dedupe.py) is per-article: two
+different write-ups of the *same real-world story* -- whether from two
+different outlets, or the same outlet publishing several articles about
+one event (e.g. five separate Al Jazeera pieces about one head of state's
+death) -- have different URLs/ids, so they're unrelated events as far as
+that store is concerned and would all post individually. This module
+catches that: if a new notable event's headline looks like the same story
+as one or more events we recently notified about (from any outlet,
+including the same one), it's suppressed once we've already posted
+MAX_SIMILAR_PER_STORY notifications about it (still archived/marked seen
+as usual, just not posted again) -- allows the first mention through
+immediately, plus one follow-up, rather than every outlet's (or the same
+outlet's every) angle on it.
 
 This is a plain keyword-overlap heuristic, not real language understanding
 -- zero cost, no external service, and reasonably good at catching close
@@ -28,6 +32,7 @@ from pathlib import Path
 WINDOW_HOURS = 36
 SIMILARITY_THRESHOLD = 0.5
 MIN_WORD_LEN = 4
+MAX_SIMILAR_PER_STORY = 2
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
@@ -52,8 +57,8 @@ _STOPWORDS = {
 def suppress_similar_stories(events: list[dict], state_path: Path) -> tuple[list[dict], list[dict]]:
     """Given candidate notable events (already sorted oldest-first), return
     (keep, suppressed): `keep` is safe to actually post, `suppressed` looks
-    like a repeat of a recently-notified story from a different outlet and
-    should be archived without posting."""
+    like the same story as MAX_SIMILAR_PER_STORY or more already-notified
+    events (from any outlet) and should be archived without posting."""
     history = _load_history(state_path)
     now = datetime.now(timezone.utc)
     history = _prune(history, now)
@@ -63,8 +68,7 @@ def suppress_similar_stories(events: list[dict], state_path: Path) -> tuple[list
 
     for event in events:
         keywords = _keywords(event["title"])
-        match = _find_match(event, keywords, history)
-        if match is not None:
+        if keywords and _count_similar(keywords, history) >= MAX_SIMILAR_PER_STORY:
             suppressed.append(event)
             continue
         keep.append(event)
@@ -80,18 +84,25 @@ def suppress_similar_stories(events: list[dict], state_path: Path) -> tuple[list
     return keep, suppressed
 
 
-def _find_match(event: dict, keywords: set[str], history: list[dict]) -> dict | None:
-    if not keywords:
-        return None
+def _count_similar(keywords: set[str], history: list[dict]) -> int:
+    count = 0
     for entry in history:
-        if entry["source"] == event["source"]:
-            continue  # same-outlet duplicates are already handled by id-based dedupe
-        overlap = keywords & set(entry["keywords"])
-        union = keywords | set(entry["keywords"])
-        similarity = len(overlap) / len(union) if union else 0.0
+        entry_keywords = set(entry["keywords"])
+        overlap = keywords & entry_keywords
+        # Overlap coefficient (shared words / size of the SMALLER headline),
+        # not Jaccard (shared / union) -- two headlines about the same
+        # story often share a tight cluster of proper nouns (names, places)
+        # but otherwise use completely different words to describe what
+        # happened. Jaccard's union in the denominator penalizes that extra
+        # wording even when the entity overlap is a near-total match;
+        # overlap coefficient only asks "does the smaller headline's word
+        # set sit almost entirely inside the bigger one," which is a much
+        # better fit for "same story, different framing/outlet."
+        smaller = min(len(keywords), len(entry_keywords))
+        similarity = len(overlap) / smaller if smaller else 0.0
         if similarity >= SIMILARITY_THRESHOLD:
-            return entry
-    return None
+            count += 1
+    return count
 
 
 def _keywords(title: str) -> set[str]:
