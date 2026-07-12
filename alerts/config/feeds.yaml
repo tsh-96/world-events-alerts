@@ -91,23 +91,18 @@ feeds:
     notify: true
     prod: false
 
-  # TEMP: trying multiple candidate URLs to find the real "My Europe"
-  # section feed -- notify:false on all of these until one is confirmed
-  # working, then this collapses back to a single entry.
-  - slug: euronews-try1
-    url: https://www.euronews.com/rss?level=theme&name=europe
+  # Couldn't locate a working "My Europe" section feed -- 3 guessed URL
+  # patterns all 404'd, and euronews.com blocks direct browsing tools, so
+  # there was no way to discover the real path. Falling back to the
+  # general feed: Euronews is a pan-European outlet by identity (not a
+  # global outlet with a separate "World" desk like BBC/CNN), so its
+  # general feed is likely already Europe-centric in practice, similar to
+  # how Moscow Times' and Africanews' general feeds work for their regions.
+  - slug: euronews
+    url: https://www.euronews.com/rss
     kind: news
-    notify: false
-
-  - slug: euronews-try2
-    url: https://www.euronews.com/my-europe/rss.xml
-    kind: news
-    notify: false
-
-  - slug: euronews-try3
-    url: https://www.euronews.com/rss?format=mrss&level=theme&name=my-europe
-    kind: news
-    notify: false
+    notify: true
+    prod: false
 
   - slug: moscow-times
     url: https://www.themoscowtimes.com/rss/news
