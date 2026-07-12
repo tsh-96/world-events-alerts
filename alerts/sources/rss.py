@@ -15,7 +15,7 @@ import feedparser
 import requests
 import yaml
 
-from alerts.normalize import make_event, strip_html, struct_time_to_iso
+from alerts.normalize import make_event, parse_date_string, strip_html, struct_time_to_iso
 
 logger = logging.getLogger(__name__)
 
@@ -122,8 +122,15 @@ def _normalize_item(slug: str, kind: str, notify: bool, prod: bool, item) -> dic
         logger.warning("rss: %s item has no guid/id/link, skipping", slug)
         return None
 
-    time_utc = struct_time_to_iso(item.get("published_parsed")) or struct_time_to_iso(
-        item.get("updated_parsed")
+    # feedparser usually turns a pubDate into published_parsed/updated_parsed
+    # itself; the raw-string fallbacks below only kick in for feeds using a
+    # date format it doesn't recognize (seen with Nikkei Asia) even though
+    # the string itself is perfectly parseable.
+    time_utc = (
+        struct_time_to_iso(item.get("published_parsed"))
+        or struct_time_to_iso(item.get("updated_parsed"))
+        or parse_date_string(item.get("published"))
+        or parse_date_string(item.get("updated"))
     )
     if time_utc is None:
         logger.warning("rss: %s item %s missing publish time, skipping", slug, native_id)

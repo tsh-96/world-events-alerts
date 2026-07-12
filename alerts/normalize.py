@@ -10,6 +10,7 @@ from __future__ import annotations
 import html
 import re
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -100,6 +101,25 @@ def struct_time_to_iso(struct_time) -> str | None:
         return None
     dt = datetime(*struct_time[:6], tzinfo=timezone.utc)
     return datetime_to_iso(dt)
+
+
+def parse_date_string(value: str | None) -> str | None:
+    """Best-effort fallback for a raw date string feedparser couldn't turn
+    into a `*_parsed` struct_time itself (some feeds use a date format
+    feedparser doesn't recognize, even though the string is fine) -- tries
+    RFC 2822 (the common RSS pubDate format) then plain ISO 8601."""
+    if not value:
+        return None
+    try:
+        dt = parsedate_to_datetime(value)
+        return datetime_to_iso(dt)
+    except Exception:
+        pass
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return datetime_to_iso(dt)
+    except Exception:
+        return None
 
 
 def strip_html(text: str | None) -> str | None:

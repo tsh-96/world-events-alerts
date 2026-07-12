@@ -87,7 +87,7 @@ feeds:
     prod: false
 
   - slug: moscow-times
-    url: https://www.themoscowtimes.com/rss
+    url: https://www.themoscowtimes.com/rss/news
     kind: news
     notify: true
     prod: false
