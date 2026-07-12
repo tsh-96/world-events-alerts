@@ -46,10 +46,12 @@ def fetch(
             continue
 
         try:
-            events.extend(_fetch_one_feed(slug, url, kind, cache))
+            feed_events = _fetch_one_feed(slug, url, kind, cache)
         except Exception:
             logger.exception("rss: failed to fetch feed %s (%s)", slug, url)
             continue
+        logger.info("rss: %s -> %d item(s)", slug, len(feed_events))
+        events.extend(feed_events)
 
     _save_cache(cache_path, cache)
     return events

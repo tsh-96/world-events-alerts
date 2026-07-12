@@ -1,0 +1,29 @@
+name: Dry-run debug
+
+# Manual-only: prints every currently-fetched event (from all sources,
+# unfiltered by dedupe) to the workflow log, without posting to Discord or
+# touching state. Useful for checking exactly what a source is or isn't
+# picking up right now.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Dry-run all sources
+        env:
+          USGS_MIN_MAGNITUDE: "4.5"
+          GDACS_MIN_SEVERITY: "2"
+          LOG_LEVEL: "INFO"
+        run: python -m alerts.run --dry-run
