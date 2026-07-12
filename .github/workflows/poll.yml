@@ -8,11 +8,13 @@
 #   Disaster severity filter: GDACS_MIN_SEVERITY (currently 2 -- 1=Green,
 #     2=Orange, 3=Red; Green fires constantly worldwide and is skipped).
 #   Message pacing: DISCORD_PACE_WINDOW_MINUTES (currently 45) -- when a
-#     check finds several new events at once, they're spread out over this
-#     many minutes instead of posted all at once. Keep this a bit below the
-#     check frequency above (e.g. under 60 min if checks are hourly) so
-#     everything from one check finishes posting before the next check's
-#     results start arriving.
+#     check finds several new events at once, they post at randomized
+#     moments (never less than 4 minutes apart) spread across roughly this
+#     many minutes, instead of all at once. If there are more new events
+#     than fit in the budget at that minimum spacing, the extras are left
+#     for the next check rather than stretching this run out further. Keep
+#     the budget a bit below the check frequency above (e.g. under 60 min
+#     if checks are hourly) so one check finishes before the next begins.
 #   Add/remove/edit news feeds: edit alerts/config/feeds.yaml instead.
 name: Poll world events
 
