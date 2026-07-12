@@ -126,11 +126,18 @@ feeds:
     notify: true
     prod: false
 
-  - slug: times-of-india
-    url: https://timesofindia.indiatimes.com/rssfeedstopstories.cms   # Top stories, India-dominated
+  # TEMP: ToI's "top stories" feed produced too much genuine (non-
+  # duplicate) volume -- trying two more selective alternatives instead,
+  # notify:false on both until we compare and pick one.
+  - slug: the-hindu-try
+    url: https://thehindu.com/feeder/default.rss
     kind: news
-    notify: true
-    prod: false
+    notify: false
+
+  - slug: hindustan-times-try
+    url: https://www.hindustantimes.com/rss/topnews/rssfeed.xml
+    kind: news
+    notify: false
 
   - slug: straits-times-asia
     url: https://www.straitstimes.com/news/asia/rss.xml   # Asia section, not World or Singapore
