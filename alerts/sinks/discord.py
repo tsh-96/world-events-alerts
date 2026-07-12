@@ -43,31 +43,38 @@ COLOR_BY_KIND = {
 DEFAULT_COLOR = 0x95A5A6  # grey
 
 
-def send(events: list[dict]) -> None:
+def send(events: list[dict]) -> list[dict]:
+    """Post events to Discord and return the subset actually delivered.
+    Callers must only mark returned events as "seen" -- an event dropped by
+    a failed batch has to stay eligible for retry on the next poll, not
+    silently vanish into the dedupe store."""
     if not events:
-        return
+        return []
 
     webhook_url = os.environ.get(WEBHOOK_URL_ENV_VAR)
     if not webhook_url:
         logger.error("discord: %s is not set, skipping %d event(s)", WEBHOOK_URL_ENV_VAR, len(events))
-        return
+        return []
 
-    batches = _build_batches([_to_embed(event) for event in events])
+    batches = _build_batches(events)
+    sent: list[dict] = []
     for i, batch in enumerate(batches):
-        _post_batch(webhook_url, batch)
+        if _post_batch(webhook_url, batch):
+            sent.extend(batch)
         if i + 1 < len(batches):
             time.sleep(SLEEP_BETWEEN_REQUESTS_SECONDS)
+    return sent
 
 
-def _build_batches(embeds: list[dict]) -> list[list[dict]]:
-    """Group embeds into requests respecting both the 10-embeds-per-message
+def _build_batches(events: list[dict]) -> list[list[dict]]:
+    """Group events into requests respecting both the 10-embeds-per-message
     cap and the 6000-combined-characters-per-message cap."""
     batches: list[list[dict]] = []
     current: list[dict] = []
     current_chars = 0
 
-    for embed in embeds:
-        embed_chars = _embed_char_count(embed)
+    for event in events:
+        embed_chars = _embed_char_count(_to_embed(event))
         if current and (
             len(current) >= MAX_EMBEDS_PER_MESSAGE
             or current_chars + embed_chars > MAX_TOTAL_CHARS_PER_MESSAGE
@@ -75,7 +82,7 @@ def _build_batches(embeds: list[dict]) -> list[list[dict]]:
             batches.append(current)
             current = []
             current_chars = 0
-        current.append(embed)
+        current.append(event)
         current_chars += embed_chars
 
     if current:
@@ -91,30 +98,33 @@ def _embed_char_count(embed: dict) -> int:
     return total
 
 
-def _post_batch(webhook_url: str, batch: list[dict], retries_left: int = 3) -> None:
+def _post_batch(webhook_url: str, batch: list[dict], retries_left: int = 3) -> bool:
     payload = {"embeds": [_to_embed(event) for event in batch]}
     try:
         response = requests.post(webhook_url, json=payload, timeout=REQUEST_TIMEOUT_SECONDS)
     except Exception:
         logger.exception("discord: request failed for a batch of %d event(s)", len(batch))
-        return
+        return False
 
     if response.status_code == 429:
         if retries_left <= 0:
             logger.error("discord: rate-limited repeatedly, dropping batch of %d event(s)", len(batch))
-            return
+            return False
         retry_after = _extract_retry_after(response)
         logger.warning("discord: rate-limited, waiting %.1fs", retry_after)
         time.sleep(retry_after)
-        _post_batch(webhook_url, batch, retries_left=retries_left - 1)
-        return
+        return _post_batch(webhook_url, batch, retries_left=retries_left - 1)
 
     if not response.ok:
         logger.error(
-            "discord: webhook post failed with status %d for a batch of %d event(s)",
+            "discord: webhook post failed with status %d for a batch of %d event(s): %s",
             response.status_code,
             len(batch),
+            response.text[:500],
         )
+        return False
+
+    return True
 
 
 def _extract_retry_after(response: requests.Response) -> float:

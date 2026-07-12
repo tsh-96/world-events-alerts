@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 
-def send(events: list[dict]) -> None:
+def send(events: list[dict]) -> list[dict]:
+    """Print events and report all of them as delivered (printing can't
+    partially fail the way a network call can)."""
     if not events:
         print("(no new events)")
-        return
+        return []
     for event in events:
         print(f"[{event['source']}/{event['kind']}] {event['title']}")
         print(f"  id:       {event['id']}")
@@ -18,3 +20,4 @@ def send(events: list[dict]) -> None:
         if event["summary"]:
             print(f"  summary:  {event['summary']}")
         print()
+    return events
