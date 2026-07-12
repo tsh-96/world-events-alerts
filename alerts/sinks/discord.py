@@ -8,10 +8,12 @@ once every configured webhook has received it.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import random
 import time
+from pathlib import Path
 
 import requests
 
@@ -19,6 +21,9 @@ logger = logging.getLogger(__name__)
 
 WEBHOOK_URL_ENV_VAR = "DISCORD_WEBHOOK_URL"
 PACE_BUDGET_MINUTES_ENV_VAR = "DISCORD_PACE_WINDOW_MINUTES"
+STATE_DIR_ENV_VAR = "ALERTS_STATE_DIR"
+DEFAULT_STATE_DIR = Path(__file__).parent.parent / "state"
+LAST_POST_STATE_FILENAME = "discord_last_post.json"
 REQUEST_TIMEOUT_SECONDS = 15
 
 # One embed per Discord message -- with the per-field caps below, a single
@@ -38,9 +43,22 @@ MAX_PLACE_CHARS = 100
 # treatment on the *next* check instead of blowing out this run's runtime.
 # Tune the budget to stay comfortably under the workflow's job timeout (see
 # .github/workflows/poll.yml).
+#
+# PACE_MIN_INTERVAL_SECONDS is also the *cross-run* minimum gap: Discord's
+# own UI visually merges consecutive messages from the same webhook (no
+# repeated name/avatar) when they land within roughly 7 minutes of each
+# other, regardless of which workflow run posted them. A single new event
+# found on its own would otherwise post immediately with no pacing at all,
+# so if two separate checks (e.g. the normal schedule and a backup trigger)
+# each find one new event a minute apart, both used to fire right away and
+# look merged in Discord. The last successful post time is now persisted
+# (see LAST_POST_STATE_FILENAME) so even a lone event waits out the rest of
+# this gap since the previous check's last post, not just gaps *within* one
+# run's batch. The value is set above Discord's ~7 minute grouping window
+# with a safety margin for clock/network jitter.
 DEFAULT_PACE_BUDGET_MINUTES = 45
-PACE_MIN_INTERVAL_SECONDS = 240
-PACE_MAX_INTERVAL_SECONDS = 600
+PACE_MIN_INTERVAL_SECONDS = 480
+PACE_MAX_INTERVAL_SECONDS = 900
 
 COLOR_BY_KIND = {
     "earthquake": 0xE74C3C,  # red
@@ -78,6 +96,8 @@ def send(events: list[dict]) -> list[dict]:
 
     sent: list[dict] = []
     for i, event in enumerate(to_post):
+        if i == 0:
+            _wait_for_cross_run_gap()
         # A plain list comprehension, not a short-circuiting all(...) --
         # every configured webhook must actually be attempted, even if an
         # earlier one failed, so one broken channel can't silently starve
@@ -85,11 +105,55 @@ def send(events: list[dict]) -> list[dict]:
         results = [_post_one(url, event) for url in webhook_urls]
         if all(results):
             sent.append(event)
+            _save_last_post_time(time.time())
         if i + 1 < len(to_post):
             gap = _random_gap(len(to_post))
             logger.info("discord: waiting %.0fs before the next post", gap)
             time.sleep(gap)
     return sent
+
+
+def _wait_for_cross_run_gap() -> None:
+    """Even a lone new event must not post within PACE_MIN_INTERVAL_SECONDS
+    of the last successfully delivered post, no matter which run (or which
+    trigger -- normal schedule vs. a backup timer) sent that earlier post.
+    Without this, a single-event run always posted with zero delay, which
+    is how two separate runs a minute apart could both fire immediately and
+    end up visually merged in Discord."""
+    last_post_epoch = _load_last_post_time()
+    if last_post_epoch is None:
+        return
+    remaining = PACE_MIN_INTERVAL_SECONDS - (time.time() - last_post_epoch)
+    if remaining > 0:
+        logger.info(
+            "discord: waiting %.0fs since the previous check's last post to keep messages spaced out",
+            remaining,
+        )
+        time.sleep(remaining)
+
+
+def _last_post_state_path() -> Path:
+    state_dir = Path(os.environ.get(STATE_DIR_ENV_VAR, DEFAULT_STATE_DIR))
+    return state_dir / LAST_POST_STATE_FILENAME
+
+
+def _load_last_post_time() -> float | None:
+    path = _last_post_state_path()
+    if not path.exists():
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f).get("last_post_epoch")
+    except Exception:
+        logger.exception("discord: failed to read last-post timestamp, treating as unknown")
+        return None
+
+
+def _save_last_post_time(epoch: float) -> None:
+    path = _last_post_state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"last_post_epoch": epoch}, f)
 
 
 def _webhook_urls() -> list[str]:
