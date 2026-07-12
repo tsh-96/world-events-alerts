@@ -1,30 +1,141 @@
 # Generic RSS/Atom news feeds. Adding a new source is config here, not code
 # -- see alerts/sources/rss.py for how each field is used.
 #
-#   slug: short unique identifier, used as part of each event's id
-#   url:  the feed URL
-#   kind: EVENT "kind" for every item from this feed (defaults to "news")
+#   slug:   short identifier, used as part of each event's id. An outlet
+#           can list more than one feed under the SAME slug (see below) --
+#           keep it stable once added, since changing it makes previously-
+#           seen articles from that outlet look "new" again.
+#   url:    the feed URL
+#   kind:   EVENT "kind" for every item from this feed (defaults to "news")
+#   notify: whether items from this feed should post to Discord's DEV
+#           channel at all (default false). Every item is ALWAYS fetched
+#           and kept for the dedupe store / future website regardless.
+#   prod:   whether items from this feed should ALSO post to Discord's PROD
+#           channel (default false). Only meaningful when notify is also
+#           true. New sources start prod: false (dev-only, on trial) --
+#           flip to prod: true once you're happy with what it's been
+#           posting to dev. See README "Dev vs. prod Discord channels".
+#
+# An outlet can list two feeds under the same slug: its full section feed
+# (notify: false -- every article, kept for the archive/website only) and
+# its own curated "top stories" feed (notify: true -- also posts to dev).
+# Overlapping articles between the two merge into one event, not posted
+# twice. This leans on an outlet's own editors to decide what's
+# significant instead of us guessing at keywords -- see README "Filtering
+# what gets sent to Discord".
+#
+# Only BBC, CNN, and Al Jazeera are meant to carry general WORLD news.
+# Every other source should be that region's own regional/local news, not
+# its "World" section (which is usually that outlet's foreign-affairs desk
+# -- the opposite of regional). Verified against each outlet's actual feed
+# contents (open a feed URL directly in a browser to see its raw items) as
+# of when each was added:
+#   - NYT: switched from World.xml/HomePage.xml to US.xml -- genuinely
+#     North-America-regional now, at the cost of the curation HomePage.xml
+#     had (HomePage mixed in world/opinion/lifestyle content).
+#   - BBC: world-focused on purpose (one of the three exceptions above) --
+#     no distinct curated feed exists, so World.xml notifies directly.
+#   - Al Jazeera: world-focused on purpose (exception) -- no curated feed
+#     found, archived only for now regardless.
+#   - SCMP: switched from the World section to the China section.
+#   - Euronews: switched to the "My Europe" theme feed instead of the
+#     general/world-mixed home feed.
+#   - Times of India: switched from the World section to their top-stories
+#     feed (India-dominated, since ToI's own top stories are India news).
+#   - Guardian, NPR: removed entirely after checking -- their "curated"
+#     candidates were no smaller/more selective than the full feed.
+#
+# EVERYTHING is currently prod: false, including BBC/NYT, which used to
+# post live before this dev/prod split existed -- nothing gets promoted to
+# prod without an explicit go-ahead from the owner in chat, reviewed
+# source by source against what it's actually been posting to dev. Don't
+# flip a `prod:` value without that sign-off.
 #
 # Verify a feed's URL still resolves before adding it -- outlets change
 # their RSS paths without notice.
 
 feeds:
-  - slug: bbc-world
+  # --- World news (deliberate exceptions -- these three stay general) ---
+
+  - slug: bbc
     url: https://feeds.bbci.co.uk/news/world/rss.xml
     kind: news
+    notify: true
+    prod: false
 
+  # No distinct "top stories only" feed found for Al Jazeera -- only the
+  # full section feed below, so it doesn't notify anywhere right now
+  # (still fetched and kept for the archive/website).
   - slug: al-jazeera
     url: https://www.aljazeera.com/xml/rss/all.xml
     kind: news
+    notify: false
 
-  - slug: the-guardian-world
-    url: https://www.theguardian.com/world/rss
+  - slug: cnn
+    url: http://rss.cnn.com/rss/cnn_topstories.rss
     kind: news
+    notify: true
+    prod: false
 
-  - slug: nyt-world
-    url: https://rss.nytimes.com/services/xml/rss/nyt/World.xml
-    kind: news
+  # --- Regional news, dev-only until reviewed ---
 
-  - slug: npr-world
-    url: https://feeds.npr.org/1004/rss.xml
+  - slug: nyt
+    url: https://rss.nytimes.com/services/xml/rss/nyt/US.xml
     kind: news
+    notify: true
+    prod: false
+
+  - slug: mercopress
+    url: https://en.mercopress.com/rss/
+    kind: news
+    notify: true
+    prod: false
+
+  # Couldn't locate a working "My Europe" section feed -- 3 guessed URL
+  # patterns all 404'd, and euronews.com blocks direct browsing tools, so
+  # there was no way to discover the real path. Falling back to the
+  # general feed: Euronews is a pan-European outlet by identity (not a
+  # global outlet with a separate "World" desk like BBC/CNN), so its
+  # general feed is likely already Europe-centric in practice, similar to
+  # how Moscow Times' and Africanews' general feeds work for their regions.
+  - slug: euronews
+    url: https://www.euronews.com/rss
+    kind: news
+    notify: true
+    prod: false
+
+  - slug: moscow-times
+    url: https://www.themoscowtimes.com/rss/news
+    kind: news
+    notify: true
+    prod: false
+
+  - slug: scmp
+    url: https://www.scmp.com/rss/4/feed   # China section
+    kind: news
+    notify: true
+    prod: false
+
+  - slug: times-of-india
+    url: https://timesofindia.indiatimes.com/rssfeedstopstories.cms   # Top stories, India-dominated
+    kind: news
+    notify: true
+    prod: false
+
+  - slug: straits-times-asia
+    url: https://www.straitstimes.com/news/asia/rss.xml   # Asia section, not World or Singapore
+    kind: news
+    notify: true
+    prod: false
+
+  - slug: rnz-pacific
+    url: https://www.rnz.co.nz/rss/pacific.xml
+    kind: news
+    notify: true
+    prod: false
+
+  - slug: africanews
+    url: https://www.africanews.com/feed/rss
+    kind: news
+    notify: true
+    prod: false
