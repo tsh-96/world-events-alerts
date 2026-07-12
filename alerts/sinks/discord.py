@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 import time
 
 import requests
@@ -15,7 +16,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 WEBHOOK_URL_ENV_VAR = "DISCORD_WEBHOOK_URL"
-PACE_WINDOW_MINUTES_ENV_VAR = "DISCORD_PACE_WINDOW_MINUTES"
+PACE_BUDGET_MINUTES_ENV_VAR = "DISCORD_PACE_WINDOW_MINUTES"
 REQUEST_TIMEOUT_SECONDS = 15
 
 # One embed per Discord message -- with the per-field caps below, a single
@@ -25,13 +26,18 @@ MAX_TITLE_CHARS = 256
 MAX_DESCRIPTION_CHARS = 350
 MAX_PLACE_CHARS = 100
 
-# When there's more than one new event, spread the posts evenly across this
-# many minutes (leaving a safety buffer before the *next* scheduled check)
-# instead of firing them all within seconds -- avoids a wall of messages
-# landing at once after a quiet stretch. Gaps are capped so a small handful
-# of events don't wait needlessly long. Tune this to roughly match how often
-# the workflow actually runs (see .github/workflows/poll.yml).
-DEFAULT_PACE_WINDOW_MINUTES = 45
+# When there's more than one new event, posts land at randomized moments
+# (not a metronome) instead of firing within seconds of each other -- but
+# never closer together than PACE_MIN_INTERVAL_SECONDS, and never spread
+# past PACE_MAX_INTERVAL_SECONDS apart even for a lone straggler. The total
+# time spent pacing is capped at PACE_BUDGET_MINUTES; if there are more new
+# events than that budget can fit at the minimum gap, the extras are simply
+# left unposted -- they stay eligible for delivery and get their own paced
+# treatment on the *next* check instead of blowing out this run's runtime.
+# Tune the budget to stay comfortably under the workflow's job timeout (see
+# .github/workflows/poll.yml).
+DEFAULT_PACE_BUDGET_MINUTES = 45
+PACE_MIN_INTERVAL_SECONDS = 240
 PACE_MAX_INTERVAL_SECONDS = 600
 
 COLOR_BY_KIND = {
@@ -48,10 +54,11 @@ DEFAULT_COLOR = 0x95A5A6  # grey
 
 
 def send(events: list[dict]) -> list[dict]:
-    """Post events to Discord, paced out over time, and return the subset
-    actually delivered. Callers must only mark returned events as "seen" --
-    an event that fails to post has to stay eligible for retry on the next
-    poll, not silently vanish into the dedupe store."""
+    """Post events to Discord at randomized, paced intervals and return the
+    subset actually delivered. Callers must only mark returned events as
+    "seen" -- an event that fails to post, or that this run didn't get to
+    at all, has to stay eligible for the next poll, not silently vanish
+    into the dedupe store."""
     if not events:
         return []
 
@@ -60,32 +67,51 @@ def send(events: list[dict]) -> list[dict]:
         logger.error("discord: %s is not set, skipping %d event(s)", WEBHOOK_URL_ENV_VAR, len(events))
         return []
 
-    interval_seconds = _pacing_interval(len(events))
-    if interval_seconds:
+    to_post, deferred = _select_for_this_run(events)
+    if deferred:
         logger.info(
-            "discord: pacing %d event(s) ~%.0fs apart", len(events), interval_seconds
+            "discord: %d event(s) deferred to the next check to stay within the pacing budget",
+            len(deferred),
         )
 
     sent: list[dict] = []
-    for i, event in enumerate(events):
+    for i, event in enumerate(to_post):
         if _post_one(webhook_url, event):
             sent.append(event)
-        if interval_seconds and i + 1 < len(events):
-            time.sleep(interval_seconds)
+        if i + 1 < len(to_post):
+            gap = _random_gap(len(to_post))
+            logger.info("discord: waiting %.0fs before the next post", gap)
+            time.sleep(gap)
     return sent
 
 
-def _pacing_interval(event_count: int) -> float:
-    """Seconds to wait between posts so `event_count` posts spread evenly
-    across the configured pacing window, capped so a small handful of
-    events never wait needlessly long."""
-    if event_count <= 1:
-        return 0.0
-    window_minutes = float(
-        os.environ.get(PACE_WINDOW_MINUTES_ENV_VAR, DEFAULT_PACE_WINDOW_MINUTES)
+def _select_for_this_run(events: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Cap how many events get paced out in one run so the minimum gap
+    between posts can't blow past the pacing budget. Anything beyond the
+    cap is left for the next check."""
+    if len(events) <= 1:
+        return events, []
+    budget_minutes = float(
+        os.environ.get(PACE_BUDGET_MINUTES_ENV_VAR, DEFAULT_PACE_BUDGET_MINUTES)
     )
-    window_seconds = window_minutes * 60
-    return min(PACE_MAX_INTERVAL_SECONDS, window_seconds / (event_count - 1))
+    budget_seconds = budget_minutes * 60
+    max_events = int(budget_seconds // PACE_MIN_INTERVAL_SECONDS) + 1
+    return events[:max_events], events[max_events:]
+
+
+def _random_gap(event_count: int) -> float:
+    """A randomized gap in [PACE_MIN_INTERVAL_SECONDS, PACE_MAX_INTERVAL_SECONDS],
+    biased around the average interval needed to fit `event_count` posts in
+    the pacing budget -- never a perfectly even metronome, never below the
+    minimum."""
+    budget_minutes = float(
+        os.environ.get(PACE_BUDGET_MINUTES_ENV_VAR, DEFAULT_PACE_BUDGET_MINUTES)
+    )
+    budget_seconds = budget_minutes * 60
+    average = budget_seconds / max(1, event_count - 1)
+    low = PACE_MIN_INTERVAL_SECONDS
+    high = min(PACE_MAX_INTERVAL_SECONDS, max(low, average * 1.8))
+    return random.uniform(low, high)
 
 
 def _post_one(webhook_url: str, event: dict, retries_left: int = 3) -> bool:
