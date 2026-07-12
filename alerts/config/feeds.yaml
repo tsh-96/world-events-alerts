@@ -27,25 +27,30 @@
 # Verified against each outlet's actual feed contents (open a feed URL
 # directly in a browser to see its raw items) as of when each was added:
 #   - NYT: HomePage.xml is genuinely smaller/curated than World.xml (top
-#     picks vs. every article). Already promoted to prod.
+#     picks vs. every article).
 #   - BBC: no distinct curated feed exists -- World.xml notifies directly
 #     as the best available stand-in for "top world stories" from BBC.
-#     Already promoted to prod.
 #   - Al Jazeera: no curated feed found -- archived only for now.
 #   - Guardian, NPR: removed entirely after checking -- their "curated"
 #     candidates were no smaller/more selective than the full feed.
+#
+# EVERYTHING is currently prod: false, including BBC/NYT, which used to
+# post live before this dev/prod split existed -- nothing gets promoted to
+# prod without an explicit go-ahead from the owner in chat, reviewed
+# source by source against what it's actually been posting to dev. Don't
+# flip a `prod:` value without that sign-off.
 #
 # Verify a feed's URL still resolves before adding it -- outlets change
 # their RSS paths without notice.
 
 feeds:
-  # --- Already trusted, posting to both dev and prod ---
+  # --- Previously live, pending re-approval for prod ---
 
   - slug: bbc
     url: https://feeds.bbci.co.uk/news/world/rss.xml
     kind: news
     notify: true
-    prod: true
+    prod: false
 
   - slug: nyt
     url: https://rss.nytimes.com/services/xml/rss/nyt/World.xml
@@ -56,7 +61,7 @@ feeds:
     url: https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml   # Home Page (top stories)
     kind: news
     notify: true
-    prod: true
+    prod: false
 
   # No distinct "top stories only" feed found for Al Jazeera -- only the
   # full section feed below, so it doesn't notify anywhere right now
@@ -104,8 +109,8 @@ feeds:
     notify: true
     prod: false
 
-  - slug: nikkei-asia
-    url: https://asia.nikkei.com/rss/feed/nar
+  - slug: straits-times-asia
+    url: https://www.straitstimes.com/news/asia/rss.xml   # Asia section, not World or Singapore
     kind: news
     notify: true
     prod: false

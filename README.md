@@ -239,6 +239,16 @@ each other -- they're deliberately different feeds:
   `prod_ready` -- see the EVENT schema above. This is the clean, trusted
   feed.
 
+`DISCORD_PROD_ENABLED` (set in `poll.yml`, default `"false"`) is a master
+switch for the entire prod tier: while it isn't exactly `"true"`, prod
+gets nothing at all, no matter what any individual source's `prod` flag
+says. This exists so prod can be guaranteed silent during a review period
+(e.g. while adding a batch of new regional sources and watching how they
+behave in dev first) without depending on every source's flag being
+correct -- one place to hold everything back, one place to let it
+through. Once it's `"true"`, each source still needs its own
+`prod: true` to actually reach prod.
+
 A source graduates from dev to prod by editing `alerts/config/feeds.yaml`
 (`prod: false` -> `prod: true` for an RSS feed) or `alerts/normalize.py`'s
 default for a whole source type -- both config/one-line changes, no new

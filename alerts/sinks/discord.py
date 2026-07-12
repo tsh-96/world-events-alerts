@@ -14,6 +14,13 @@ Two channels, not mirrors of each other:
   DISCORD_WEBHOOK_URL_3, _4, ... -- additional prod mirrors, if ever
                             needed; everything past the first webhook is
                             "prod tier".
+  DISCORD_PROD_ENABLED   -- master switch for the whole prod tier. Unless
+                            this is exactly "true", NOTHING posts to prod
+                            no matter what any individual source's `prod`
+                            flag says -- a single place to guarantee prod
+                            stays silent while reviewing new sources in
+                            dev, instead of relying on every source's flag
+                            being set correctly.
 
 Webhook URLs are SECRETS -- never log them, never put them in an exception
 message that might reach logs/CI output. Dev and prod are paced and
@@ -37,6 +44,7 @@ logger = logging.getLogger(__name__)
 
 WEBHOOK_URL_ENV_VAR = "DISCORD_WEBHOOK_URL"
 PACE_BUDGET_MINUTES_ENV_VAR = "DISCORD_PACE_WINDOW_MINUTES"
+PROD_ENABLED_ENV_VAR = "DISCORD_PROD_ENABLED"
 STATE_DIR_ENV_VAR = "ALERTS_STATE_DIR"
 DEFAULT_STATE_DIR = Path(__file__).parent.parent / "state"
 LAST_POST_STATE_FILENAME_TEMPLATE = "discord_last_post_{channel}.json"
@@ -211,7 +219,12 @@ def _dev_webhook_urls() -> list[str]:
 
 def _prod_webhook_urls() -> list[str]:
     """DISCORD_WEBHOOK_URL_2, _3, ... -- everything past the first webhook
-    is prod tier."""
+    is prod tier. Returns [] unconditionally unless DISCORD_PROD_ENABLED is
+    exactly "true", regardless of what's configured -- a single master
+    switch so prod can be guaranteed silent while reviewing new sources in
+    dev, without depending on every source's `prod` flag being correct."""
+    if os.environ.get(PROD_ENABLED_ENV_VAR, "").strip().lower() != "true":
+        return []
     urls = []
     i = 2
     while True:
