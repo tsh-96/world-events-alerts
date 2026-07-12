@@ -12,3 +12,11 @@ feeds:
   - slug: bbc-world
     url: https://feeds.bbci.co.uk/news/world/rss.xml
     kind: news
+
+  - slug: al-jazeera
+    url: https://www.aljazeera.com/xml/rss/all.xml
+    kind: news
+
+  - slug: the-guardian-world
+    url: https://www.theguardian.com/world/rss
+    kind: news
