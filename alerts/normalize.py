@@ -27,6 +27,8 @@ EVENT_FIELDS = (
     "country",
     "time_utc",
     "url",
+    "notable",
+    "prod_ready",
 )
 
 
@@ -44,8 +46,22 @@ def make_event(
     country: str | None,
     time_utc: str,
     url: str,
+    notable: bool = True,
+    prod_ready: bool = True,
 ) -> dict:
-    """Build an EVENT dict matching the schema in README.md."""
+    """Build an EVENT dict matching the schema in README.md.
+
+    `notable` flags whether this event is significant enough to actively
+    notify about (e.g. Discord), as opposed to just being archived for
+    later consumers (e.g. the future website, which wants everything).
+    Defaults True: sources that already gate on a severity/magnitude
+    threshold (USGS, GDACS) are notable by construction. RSS sets it
+    per-feed -- see alerts/sources/rss.py.
+
+    `prod_ready` further splits notable events between the dev and prod
+    Discord channels: dev gets every notable event, prod only gets the
+    ones flagged prod_ready. Defaults True (USGS/GDACS go straight to
+    both); RSS sets it per-feed for staged rollout of new sources."""
     return {
         "id": f"{source}:{native_id}",
         "source": source,
@@ -59,6 +75,8 @@ def make_event(
         "country": country,
         "time_utc": time_utc,
         "url": url,
+        "notable": notable,
+        "prod_ready": prod_ready,
     }
 
 

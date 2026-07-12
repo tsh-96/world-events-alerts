@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 
 from alerts.dedupe import open_store
+from alerts.notability import suppress_similar_stories
 from alerts.sinks import console as console_sink
 from alerts.sinks import discord as discord_sink
 
@@ -92,24 +93,51 @@ def run(sink_names: list[str], dry_run: bool, mark_seen_only: bool = False) -> N
             print(f"cleared backlog: marked {len(new_events)} event(s) as seen without posting")
             return
 
+        # `notable` events get sent to sinks; everything else is archived
+        # (marked seen) without ever being attempted -- not a delivery
+        # failure, so it's settled immediately rather than retried.
+        notable_events = [e for e in new_events if e.get("notable", True)]
+        quiet_events = [e for e in new_events if not e.get("notable", True)]
+        if quiet_events:
+            logger.info(
+                "%d of %d new event(s) were not notable and are archived without posting",
+                len(quiet_events),
+                len(new_events),
+            )
+
+        # A big story often gets covered by several outlets at once -- catch
+        # near-duplicate headlines from different sources so it doesn't post
+        # once per outlet. Suppressed ones are archived like any other
+        # quiet event, not retried.
+        notable_events, redundant_events = suppress_similar_stories(
+            notable_events, STATE_DIR / "notable_story_history.json"
+        )
+        if redundant_events:
+            logger.info(
+                "%d notable event(s) looked like a repeat of a recently-notified story from a "
+                "different outlet and were archived without posting",
+                len(redundant_events),
+            )
+            quiet_events += redundant_events
+
         delivered_ids = None
         for sink_name in sink_names:
             sink = SINKS[sink_name]
-            delivered = sink.send(new_events)
+            delivered = sink.send(notable_events)
             ids = {event["id"] for event in delivered}
             delivered_ids = ids if delivered_ids is None else (delivered_ids & ids)
 
-        # Only mark an event "seen" once every requested sink actually
-        # delivered it -- a failed Discord batch must not make an event
-        # disappear from future polls before it's ever been posted.
-        confirmed = [e for e in new_events if delivered_ids and e["id"] in delivered_ids]
-        if len(confirmed) < len(new_events):
+        # Only mark a notable event "seen" once every requested sink
+        # actually delivered it -- a failed Discord batch must not make an
+        # event disappear from future polls before it's ever been posted.
+        confirmed_notable = [e for e in notable_events if delivered_ids and e["id"] in delivered_ids]
+        if len(confirmed_notable) < len(notable_events):
             logger.warning(
-                "%d of %d new event(s) were not confirmed delivered and will be retried next run",
-                len(new_events) - len(confirmed),
-                len(new_events),
+                "%d of %d notable event(s) were not confirmed delivered and will be retried next run",
+                len(notable_events) - len(confirmed_notable),
+                len(notable_events),
             )
-        store.mark_seen(confirmed)
+        store.mark_seen(quiet_events + confirmed_notable)
 
 
 def main() -> None:

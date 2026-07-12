@@ -24,13 +24,15 @@ alerts/
     rss.py            generic news, config-driven (config/feeds.yaml)
   normalize.py       shared helpers: event construction, id/time/text helpers
   dedupe.py          persistent "seen ids" store (SQLite)
+  notability.py      cross-outlet duplicate-story suppression (see below)
   sinks/
     console.py        prints events (dry runs, testing)
-    discord.py         posts Discord embeds via webhook
+    discord.py         posts Discord embeds via webhook (dev + prod channels)
   config/feeds.yaml   RSS feed list + per-feed metadata
   run.py              CLI entrypoint
-  state/              dedupe DB, RSS conditional-GET cache, last-Discord-post
-                      timestamp (persisted between CI runs)
+  state/              dedupe DB, RSS conditional-GET cache, per-channel
+                      last-Discord-post timestamps, recent-story history
+                      (persisted between CI runs)
 ```
 
 ## The EVENT schema
@@ -53,6 +55,8 @@ renamed or repurposed; new optional fields may be added later.
 | country    | string or null  | yes      | ISO3 code if confidently known from the source, else null -- never guessed |
 | time_utc   | string          | yes      | ISO 8601 UTC, e.g. `"2026-07-11T13:02:11Z"` |
 | url        | string          | yes      | link to the original source page (shown to humans as attribution) |
+| notable    | boolean         | yes      | whether this event is significant enough to actively notify about (e.g. Discord), as opposed to just being archived for other consumers (e.g. the future website, which wants everything regardless). Defaults `true`; see "Filtering what gets sent to Discord" |
+| prod_ready | boolean         | yes      | among notable events, whether this one is trusted enough for the prod Discord channel, vs. dev-channel-only while a source is on trial. Defaults `true`; see "Dev vs. prod Discord channels" |
 
 Unknown is always `null`, never `""`, never fabricated. Titles/summaries
 reproduce the source's own words (headline + short snippet + link +
@@ -134,22 +138,87 @@ Edit `alerts/config/feeds.yaml`:
 
 ```yaml
 feeds:
-  - slug: bbc-world
+  - slug: bbc
     url: https://feeds.bbci.co.uk/news/world/rss.xml
     kind: news
+    notify: true
+    prod: false
 ```
 
 - `slug` becomes part of the event id (`source` field too) -- keep it
-  stable once added.
+  stable once added (see "Filtering what gets sent to Discord" below for
+  why an outlet can have more than one feed sharing the same slug).
 - `kind` defaults to `news` if omitted.
+- `notify` controls whether items from this feed post to Discord's dev
+  channel at all (default `false`) -- see the next section. It never
+  affects whether an item is fetched and kept in the dedupe store.
+- `prod` controls whether items from this feed ALSO post to the prod
+  channel (default `false`, only meaningful when `notify` is also true).
+  New sources should start `prod: false` -- watch how they behave in dev
+  for a while, then flip to `prod: true` once you trust them. See "Dev vs.
+  prod Discord channels".
 - Verify the feed URL still resolves before adding it; outlets change RSS
   paths without notice.
 - No code changes needed. No geocoding happens here -- `lat`/`lon`/`place`
   are always null for RSS events in v1.
 
+## Filtering what gets sent to Discord
+
+Every event from every source is always fetched and kept in the dedupe
+store, regardless of importance -- nothing is ever thrown away, so a
+future consumer (e.g. the map website) still gets the full picture. What's
+different is which of those events actually trigger a Discord message: an
+event only posts to Discord if it's `notable` (see the EVENT schema
+above). USGS and GDACS are `notable` by construction -- they already only
+fetch events above `USGS_MIN_MAGNITUDE` / `GDACS_MIN_SEVERITY`, so
+whatever they do return has already cleared a significance bar.
+
+News (RSS) is different: a general "everything published in this section"
+feed has no sense of importance on its own. So for news, `notable` comes
+from `alerts/config/feeds.yaml`'s `notify` flag (see above). Some outlets
+publish a second feed of just their editors' top picks, separate from the
+full section feed -- when one genuinely exists and is smaller/more
+selective than the section feed, `feeds.yaml` lists both under the same
+`slug`: the full feed with `notify: false` (archived only) and the
+curated feed with `notify: true` (also posts to dev). Overlapping
+articles between the two merge into one event, not posted twice.
+
+This leans on an outlet's own editors to decide what's "important"
+instead of us guessing with a keyword list -- no tuning required when it
+works. It only works when a real curated feed exists, though: NYT's
+`HomePage.xml` genuinely is smaller/more selective than its `World.xml`;
+BBC, Al Jazeera, Guardian, and NPR were all checked and none had a real
+equivalent (Guardian and NPR were dropped entirely as a result -- their
+"curated" candidates turned out no smaller than the full feed). Where no
+curated feed exists, an outlet's regular section feed notifies directly
+instead, as the best available stand-in.
+
+### Regional outlets and cross-outlet duplicates
+
+Beyond the general-purpose BBC/CNN/NYT feeds, `feeds.yaml` also lists one
+or two feeds per world region (South America, Europe, Russia, China,
+India, Middle East, East/Southeast Asia, Oceania, Africa) so the bot isn't
+only reporting through a US/UK lens. New regional additions start
+`prod: false` (dev-channel only) until reviewed -- see "Dev vs. prod
+Discord channels" below.
+
+More outlets covering the same world raises an obvious problem: a single
+big story (a major earthquake, a war escalation) can get covered by every
+outlet at once, and without anything to catch that, it'd post once per
+outlet. `alerts/notability.py` catches this: before posting, a new
+notable event's headline is compared (by significant-word overlap, not a
+paid AI call) against other notable events posted in roughly the last day
+and a half. A close match from a *different* outlet gets treated as the
+same story and archived without posting again, instead of showing up
+redundantly. This is a plain keyword heuristic, not real language
+understanding -- it will occasionally miss a genuine duplicate phrased
+very differently, or (more rarely) suppress two distinct stories that
+happen to share several significant words. `SIMILARITY_THRESHOLD` in that
+file is the dial to tune if it's over- or under-suppressing in practice.
+
 ## Setting the Discord webhook secret
 
-The bot posts through a Discord webhook. Create one in your target channel
+The bot posts through Discord webhooks. Create one in your target channel
 (Channel Settings -> Integrations -> Webhooks), then, in this repo:
 
 1. Settings -> Secrets and variables -> Actions -> New repository secret
@@ -159,17 +228,37 @@ The bot posts through a Discord webhook. Create one in your target channel
 It is exposed to the scheduled workflow as an env var and is **never**
 committed, logged, or echoed anywhere -- this repo is public.
 
-### Posting to more than one channel/server
+### Dev vs. prod Discord channels
 
-Create a webhook in the second channel the same way, then add it as a
-second secret named `DISCORD_WEBHOOK_URL_2` (repeat with `_3`, `_4`, ... for
-further channels). Every configured webhook receives the exact same feed,
-in the same order, with the same pacing -- an event only counts as
-delivered once every configured webhook has it, so a temporarily-broken
-channel doesn't cause events to be lost, just retried on the next check.
-Adding a channel never replays old events: the dedupe store already knows
-what's been seen, so a newly added channel joins the live stream from that
-point on with no backlog dump.
+`DISCORD_WEBHOOK_URL` and `DISCORD_WEBHOOK_URL_2` are **not** mirrors of
+each other -- they're deliberately different feeds:
+
+- `DISCORD_WEBHOOK_URL` (dev) gets **every** notable event, including
+  brand-new sources still on trial.
+- `DISCORD_WEBHOOK_URL_2` (prod) only gets notable events also flagged
+  `prod_ready` -- see the EVENT schema above. This is the clean, trusted
+  feed.
+
+A source graduates from dev to prod by editing `alerts/config/feeds.yaml`
+(`prod: false` -> `prod: true` for an RSS feed) or `alerts/normalize.py`'s
+default for a whole source type -- both config/one-line changes, no new
+code. Dev and prod are paced independently (each has its own randomized
+timing across the pacing budget) since they usually carry different
+content, so their messages won't necessarily land at the same moments
+even for an event that reaches both.
+
+If you only want one channel, just set `DISCORD_WEBHOOK_URL` -- everything
+notable posts there and prod-tier filtering never comes into play. Set
+`DISCORD_WEBHOOK_URL_3`, `_4`, ... for additional prod-tier mirrors if you
+ever want more than one "clean feed" channel; only the first webhook is
+ever treated as dev.
+
+An event only counts as delivered once every webhook it was eligible for
+actually received it -- a temporarily-broken channel doesn't cause events
+to be lost, just retried next check. Adding a new webhook never replays
+old events: the dedupe store already knows what's been seen, so a newly
+added channel joins the live stream from that point on with no backlog
+dump.
 
 ## First-run seeding behavior
 

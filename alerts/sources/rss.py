@@ -33,32 +33,55 @@ def fetch(
     feeds_config_path: str | Path = DEFAULT_FEEDS_CONFIG_PATH,
     cache_path: str | Path = DEFAULT_CACHE_PATH,
 ) -> list[dict]:
+    """Fetch every configured feed. An outlet can list more than one feed
+    under the same `slug` (e.g. its full section feed plus its curated
+    top-stories feed) -- when the same article shows up in both, they're
+    merged into a single event rather than posted twice, and that event is
+    `notable` if it appeared in *any* feed marked `notify: true`, and
+    `prod_ready` if it appeared in any feed marked `prod: true`, for that
+    outlet."""
     feeds = _load_feeds_config(feeds_config_path)
     cache = _load_cache(cache_path)
 
-    events: list[dict] = []
+    events_by_id: dict[str, dict] = {}
     for feed_cfg in feeds:
         slug = feed_cfg.get("slug")
         url = feed_cfg.get("url")
         kind = feed_cfg.get("kind", DEFAULT_KIND)
+        notify = bool(feed_cfg.get("notify", False))
+        prod = bool(feed_cfg.get("prod", False))
         if not slug or not url:
             logger.warning("rss: skipping malformed feed config entry: %r", feed_cfg)
             continue
 
         try:
-            feed_events = _fetch_one_feed(slug, url, kind, cache)
+            feed_events = _fetch_one_feed(slug, url, kind, notify, prod, cache)
         except Exception:
             logger.exception("rss: failed to fetch feed %s (%s)", slug, url)
             continue
-        logger.info("rss: %s -> %d item(s)", slug, len(feed_events))
-        events.extend(feed_events)
+        logger.info(
+            "rss: %s -> %d item(s) (notify=%s, prod=%s, %s)", slug, len(feed_events), notify, prod, url
+        )
+
+        for event in feed_events:
+            existing = events_by_id.get(event["id"])
+            if existing is None:
+                events_by_id[event["id"]] = event
+            else:
+                if event["notable"] and not existing["notable"]:
+                    existing["notable"] = True
+                if event["prod_ready"] and not existing["prod_ready"]:
+                    existing["prod_ready"] = True
 
     _save_cache(cache_path, cache)
-    return events
+    return list(events_by_id.values())
 
 
-def _fetch_one_feed(slug: str, url: str, kind: str, cache: dict) -> list[dict]:
-    cached = cache.get(slug, {})
+def _fetch_one_feed(slug: str, url: str, kind: str, notify: bool, prod: bool, cache: dict) -> list[dict]:
+    # Cached by URL, not slug -- an outlet can have more than one feed URL
+    # sharing a slug, and each needs its own independent conditional-GET
+    # cache entry.
+    cached = cache.get(url, {})
     headers = {"User-Agent": USER_AGENT}
     if cached.get("etag"):
         headers["If-None-Match"] = cached["etag"]
@@ -77,14 +100,14 @@ def _fetch_one_feed(slug: str, url: str, kind: str, cache: dict) -> list[dict]:
         new_cache_entry["etag"] = response.headers["ETag"]
     if "Last-Modified" in response.headers:
         new_cache_entry["modified"] = response.headers["Last-Modified"]
-    cache[slug] = new_cache_entry
+    cache[url] = new_cache_entry
 
     parsed = feedparser.parse(response.content)
 
     events = []
     for item in parsed.entries:
         try:
-            event = _normalize_item(slug, kind, item)
+            event = _normalize_item(slug, kind, notify, prod, item)
         except Exception:
             logger.exception("rss: failed to normalize item from %s: %r", slug, item.get("link"))
             continue
@@ -93,7 +116,7 @@ def _fetch_one_feed(slug: str, url: str, kind: str, cache: dict) -> list[dict]:
     return events
 
 
-def _normalize_item(slug: str, kind: str, item) -> dict | None:
+def _normalize_item(slug: str, kind: str, notify: bool, prod: bool, item) -> dict | None:
     native_id = item.get("id") or item.get("link")
     if not native_id:
         logger.warning("rss: %s item has no guid/id/link, skipping", slug)
@@ -124,6 +147,8 @@ def _normalize_item(slug: str, kind: str, item) -> dict | None:
         country=None,
         time_utc=time_utc,
         url=item.get("link"),
+        notable=notify,
+        prod_ready=prod,
     )
 
 

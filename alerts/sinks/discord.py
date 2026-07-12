@@ -1,11 +1,25 @@
-"""Discord sink: posts events as embeds to one or more webhooks, usually one
-embed per message but bundling several into one message when the pacing
-budget can't give everything its own slot (see send() below).
+"""Discord sink: posts events as embeds to a dev channel and a prod channel,
+usually one embed per message but bundling several into one message when
+the pacing budget can't give everything its own slot (see send() below).
 
-Webhook URLs are SECRETS (env vars DISCORD_WEBHOOK_URL, DISCORD_WEBHOOK_URL_2,
-DISCORD_WEBHOOK_URL_3, ...) -- never log them, never put them in an exception
-message that might reach logs/CI output. An event only counts as delivered
-once every configured webhook has received it.
+Two channels, not mirrors of each other:
+  DISCORD_WEBHOOK_URL    -- "dev": gets every notable event. Used for
+                            trying out new/unproven sources before they're
+                            trusted.
+  DISCORD_WEBHOOK_URL_2  -- "prod": gets only notable events also flagged
+                            `prod_ready` (see alerts/normalize.py). Promote
+                            a source from dev-only to prod by flipping its
+                            `prod: true` in alerts/config/feeds.yaml once
+                            you're happy with what it's been posting to dev.
+  DISCORD_WEBHOOK_URL_3, _4, ... -- additional prod mirrors, if ever
+                            needed; everything past the first webhook is
+                            "prod tier".
+
+Webhook URLs are SECRETS -- never log them, never put them in an exception
+message that might reach logs/CI output. Dev and prod are paced and
+delivery-confirmed independently (see _deliver_to_channel): an event only
+counts as fully "seen" once dev has it, and once prod has it too if it was
+prod-eligible in the first place.
 """
 
 from __future__ import annotations
@@ -25,8 +39,11 @@ WEBHOOK_URL_ENV_VAR = "DISCORD_WEBHOOK_URL"
 PACE_BUDGET_MINUTES_ENV_VAR = "DISCORD_PACE_WINDOW_MINUTES"
 STATE_DIR_ENV_VAR = "ALERTS_STATE_DIR"
 DEFAULT_STATE_DIR = Path(__file__).parent.parent / "state"
-LAST_POST_STATE_FILENAME = "discord_last_post.json"
+LAST_POST_STATE_FILENAME_TEMPLATE = "discord_last_post_{channel}.json"
 REQUEST_TIMEOUT_SECONDS = 15
+
+DEV_CHANNEL = "dev"
+PROD_CHANNEL = "prod"
 
 MAX_TITLE_CHARS = 256
 MAX_DESCRIPTION_CHARS = 350
@@ -40,22 +57,22 @@ MAX_TOTAL_CHARS_PER_MESSAGE = 5500
 
 # New events post at randomized moments across roughly PACE_BUDGET_MINUTES
 # instead of firing within seconds of each other, never closer together
-# than PACE_MIN_INTERVAL_SECONDS. Unlike an earlier version of this, nothing
-# is ever left for the next check: there's only one check per hour now (see
-# poll.yml), so deferring would mean a real story sitting unposted for up
-# to another hour. Instead, every event this run collects gets posted THIS
-# run -- if there isn't enough of the budget left to give each event its
-# own message at the minimum gap, extra events are bundled into the same
-# message for some of the slots (see _assign_slots/_build_message_batches)
-# rather than pushed to later.
+# than PACE_MIN_INTERVAL_SECONDS. There's only one check per hour (see
+# poll.yml), so nothing is ever deferred to "next check" -- every event
+# this run collects gets posted THIS run. If there isn't enough of the
+# budget left to give each event its own message, extra events are bundled
+# into the same message for some of the slots (see
+# _assign_slots/_build_message_batches) rather than pushed to later.
+# Dev and prod each get their own independent pacing pass (different
+# content, different timing), sharing this same budget/floor/ceiling.
 #
-# PACE_MIN_INTERVAL_SECONDS is also the *cross-run* minimum gap: a single
-# new event found on its own would otherwise post immediately with no
-# pacing at all, so two separate runs landing close together (e.g. a manual
-# run overlapping the hourly one) could both fire right away. The last
-# successful post time is persisted (see LAST_POST_STATE_FILENAME) so even
-# a lone event waits out the rest of this gap since the previous run's last
-# post, not just gaps *within* one run's batch.
+# PACE_MIN_INTERVAL_SECONDS is also the *cross-run* minimum gap, tracked
+# separately per channel: a single new event found on its own would
+# otherwise post immediately with no pacing at all, so two separate runs
+# landing close together could both fire right away. The last successful
+# post time per channel is persisted (see LAST_POST_STATE_FILENAME_TEMPLATE)
+# so even a lone event waits out the rest of this gap since that channel's
+# last post, not just gaps *within* one run's batch.
 DEFAULT_PACE_BUDGET_MINUTES = 52
 PACE_MIN_INTERVAL_SECONDS = 240
 PACE_MAX_INTERVAL_SECONDS = 600
@@ -74,95 +91,128 @@ DEFAULT_COLOR = 0x95A5A6  # grey
 
 
 def send(events: list[dict]) -> list[dict]:
-    """Post every event to every configured webhook this run -- nothing is
-    ever deferred to the next check. Returns the subset actually delivered
-    (to all webhooks); callers must only mark returned events as "seen" so
-    a failed post stays eligible for retry instead of silently vanishing."""
+    """Deliver events to the dev and prod channels independently and return
+    the subset fully delivered (dev, and prod too if the event was
+    prod-eligible). Callers must only mark returned events as "seen" -- an
+    event that fails to post, or that this run didn't get to, has to stay
+    eligible for the next poll, not silently vanish into the dedupe store."""
     if not events:
         return []
 
-    webhook_urls = _webhook_urls()
-    if not webhook_urls:
+    dev_urls = _dev_webhook_urls()
+    prod_urls = _prod_webhook_urls()
+    if not dev_urls and not prod_urls:
         logger.error("discord: %s is not set, skipping %d event(s)", WEBHOOK_URL_ENV_VAR, len(events))
         return []
 
+    prod_eligible_ids = {event["id"] for event in events if event.get("prod_ready", True)}
+    prod_events = [event for event in events if event["id"] in prod_eligible_ids]
+
+    delivered_dev_ids = (
+        _deliver_to_channel(DEV_CHANNEL, dev_urls, events) if dev_urls else {event["id"] for event in events}
+    )
+    delivered_prod_ids = _deliver_to_channel(PROD_CHANNEL, prod_urls, prod_events) if prod_urls else set()
+
+    delivered = []
+    for event in events:
+        dev_ok = event["id"] in delivered_dev_ids
+        prod_ok = (
+            event["id"] not in prod_eligible_ids or not prod_urls or event["id"] in delivered_prod_ids
+        )
+        if dev_ok and prod_ok:
+            delivered.append(event)
+    return delivered
+
+
+def _deliver_to_channel(channel: str, webhook_urls: list[str], events: list[dict]) -> set[str]:
+    """Run the full paced posting pipeline for one channel's own event list
+    and return the ids actually delivered to every webhook configured for
+    that channel."""
+    if not events:
+        return set()
+
     slots = _assign_slots(events)
-    logger.info("discord: posting %d event(s) across %d message(s) this run", len(events), len(slots))
+    logger.info(
+        "discord: [%s] posting %d event(s) across %d message(s) this run", channel, len(events), len(slots)
+    )
 
     budget_seconds = _pace_budget_seconds()
     start = time.time()
-    sent: list[dict] = []
+    delivered_ids: set[str] = set()
     for i, slot_events in enumerate(slots):
         if i == 0:
-            _wait_for_cross_run_gap()
+            _wait_for_cross_run_gap(channel)
         for batch in _build_message_batches(slot_events):
             # A plain list comprehension, not a short-circuiting all(...) --
-            # every configured webhook must actually be attempted, even if
-            # an earlier one failed, so one broken channel can't silently
-            # starve the others of a message they'd otherwise have gotten.
+            # every webhook in this channel must actually be attempted,
+            # even if an earlier one failed, so one broken channel mirror
+            # can't silently starve the others of a message they'd
+            # otherwise have gotten.
             results = [_post_batch(url, batch) for url in webhook_urls]
             if all(results):
-                sent.extend(batch)
-                _save_last_post_time(time.time())
+                delivered_ids.update(event["id"] for event in batch)
+                _save_last_post_time(channel, time.time())
         if i + 1 < len(slots):
             remaining_gaps = len(slots) - 1 - i
             remaining_budget = max(0.0, budget_seconds - (time.time() - start))
             gap = _random_gap(remaining_gaps, remaining_budget)
-            logger.info("discord: waiting %.0fs before the next post", gap)
+            logger.info("discord: [%s] waiting %.0fs before the next post", channel, gap)
             time.sleep(gap)
-    return sent
+    return delivered_ids
 
 
-def _wait_for_cross_run_gap() -> None:
+def _wait_for_cross_run_gap(channel: str) -> None:
     """Even a lone new event must not post within PACE_MIN_INTERVAL_SECONDS
-    of the last successfully delivered post, no matter which run (or which
-    trigger -- normal schedule vs. a backup timer) sent that earlier post.
-    Without this, a single-event run always posted with zero delay, which
-    is how two separate runs a minute apart could both fire immediately and
-    end up visually merged in Discord."""
-    last_post_epoch = _load_last_post_time()
+    of that channel's last successfully delivered post, no matter which run
+    sent it. Without this, a single-event run always posted with zero
+    delay, which is how two separate runs a minute apart could both fire
+    immediately and end up visually merged in Discord."""
+    last_post_epoch = _load_last_post_time(channel)
     if last_post_epoch is None:
         return
     remaining = PACE_MIN_INTERVAL_SECONDS - (time.time() - last_post_epoch)
     if remaining > 0:
         logger.info(
-            "discord: waiting %.0fs since the previous check's last post to keep messages spaced out",
+            "discord: [%s] waiting %.0fs since the previous check's last post to keep messages spaced out",
+            channel,
             remaining,
         )
         time.sleep(remaining)
 
 
-def _last_post_state_path() -> Path:
+def _last_post_state_path(channel: str) -> Path:
     state_dir = Path(os.environ.get(STATE_DIR_ENV_VAR, DEFAULT_STATE_DIR))
-    return state_dir / LAST_POST_STATE_FILENAME
+    return state_dir / LAST_POST_STATE_FILENAME_TEMPLATE.format(channel=channel)
 
 
-def _load_last_post_time() -> float | None:
-    path = _last_post_state_path()
+def _load_last_post_time(channel: str) -> float | None:
+    path = _last_post_state_path(channel)
     if not path.exists():
         return None
     try:
         with open(path, encoding="utf-8") as f:
             return json.load(f).get("last_post_epoch")
     except Exception:
-        logger.exception("discord: failed to read last-post timestamp, treating as unknown")
+        logger.exception("discord: failed to read last-post timestamp for %s, treating as unknown", channel)
         return None
 
 
-def _save_last_post_time(epoch: float) -> None:
-    path = _last_post_state_path()
+def _save_last_post_time(channel: str, epoch: float) -> None:
+    path = _last_post_state_path(channel)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump({"last_post_epoch": epoch}, f)
 
 
-def _webhook_urls() -> list[str]:
-    """DISCORD_WEBHOOK_URL, plus DISCORD_WEBHOOK_URL_2, _3, ... for any
-    additional channels/servers, each mirroring the exact same feed."""
-    urls = []
+def _dev_webhook_urls() -> list[str]:
     primary = os.environ.get(WEBHOOK_URL_ENV_VAR)
-    if primary:
-        urls.append(primary)
+    return [primary] if primary else []
+
+
+def _prod_webhook_urls() -> list[str]:
+    """DISCORD_WEBHOOK_URL_2, _3, ... -- everything past the first webhook
+    is prod tier."""
+    urls = []
     i = 2
     while True:
         extra = os.environ.get(f"{WEBHOOK_URL_ENV_VAR}_{i}")

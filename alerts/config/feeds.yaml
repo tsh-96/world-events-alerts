@@ -1,30 +1,123 @@
 # Generic RSS/Atom news feeds. Adding a new source is config here, not code
 # -- see alerts/sources/rss.py for how each field is used.
 #
-#   slug: short unique identifier, used as part of each event's id
-#   url:  the feed URL
-#   kind: EVENT "kind" for every item from this feed (defaults to "news")
+#   slug:   short identifier, used as part of each event's id. An outlet
+#           can list more than one feed under the SAME slug (see below) --
+#           keep it stable once added, since changing it makes previously-
+#           seen articles from that outlet look "new" again.
+#   url:    the feed URL
+#   kind:   EVENT "kind" for every item from this feed (defaults to "news")
+#   notify: whether items from this feed should post to Discord's DEV
+#           channel at all (default false). Every item is ALWAYS fetched
+#           and kept for the dedupe store / future website regardless.
+#   prod:   whether items from this feed should ALSO post to Discord's PROD
+#           channel (default false). Only meaningful when notify is also
+#           true. New sources start prod: false (dev-only, on trial) --
+#           flip to prod: true once you're happy with what it's been
+#           posting to dev. See README "Dev vs. prod Discord channels".
+#
+# An outlet can list two feeds under the same slug: its full section feed
+# (notify: false -- every article, kept for the archive/website only) and
+# its own curated "top stories" feed (notify: true -- also posts to dev).
+# Overlapping articles between the two merge into one event, not posted
+# twice. This leans on an outlet's own editors to decide what's
+# significant instead of us guessing at keywords -- see README "Filtering
+# what gets sent to Discord".
+#
+# Verified against each outlet's actual feed contents (open a feed URL
+# directly in a browser to see its raw items) as of when each was added:
+#   - NYT: HomePage.xml is genuinely smaller/curated than World.xml (top
+#     picks vs. every article). Already promoted to prod.
+#   - BBC: no distinct curated feed exists -- World.xml notifies directly
+#     as the best available stand-in for "top world stories" from BBC.
+#     Already promoted to prod.
+#   - Al Jazeera: no curated feed found -- archived only for now.
+#   - Guardian, NPR: removed entirely after checking -- their "curated"
+#     candidates were no smaller/more selective than the full feed.
 #
 # Verify a feed's URL still resolves before adding it -- outlets change
 # their RSS paths without notice.
 
 feeds:
-  - slug: bbc-world
+  # --- Already trusted, posting to both dev and prod ---
+
+  - slug: bbc
     url: https://feeds.bbci.co.uk/news/world/rss.xml
     kind: news
+    notify: true
+    prod: true
 
+  - slug: nyt
+    url: https://rss.nytimes.com/services/xml/rss/nyt/World.xml
+    kind: news
+    notify: false
+
+  - slug: nyt
+    url: https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml   # Home Page (top stories)
+    kind: news
+    notify: true
+    prod: true
+
+  # No distinct "top stories only" feed found for Al Jazeera -- only the
+  # full section feed below, so it doesn't notify anywhere right now
+  # (still fetched and kept for the archive/website).
   - slug: al-jazeera
     url: https://www.aljazeera.com/xml/rss/all.xml
     kind: news
+    notify: false
 
-  - slug: the-guardian-world
-    url: https://www.theguardian.com/world/rss
-    kind: news
+  # --- New regional candidates, dev-only until reviewed ---
 
-  - slug: nyt-world
-    url: https://rss.nytimes.com/services/xml/rss/nyt/World.xml
+  - slug: cnn
+    url: http://rss.cnn.com/rss/cnn_topstories.rss
     kind: news
+    notify: true
+    prod: false
 
-  - slug: npr-world
-    url: https://feeds.npr.org/1004/rss.xml
+  - slug: mercopress
+    url: https://en.mercopress.com/rss/
     kind: news
+    notify: true
+    prod: false
+
+  - slug: euronews
+    url: https://www.euronews.com/rss
+    kind: news
+    notify: true
+    prod: false
+
+  - slug: moscow-times
+    url: https://www.themoscowtimes.com/rss
+    kind: news
+    notify: true
+    prod: false
+
+  - slug: scmp
+    url: https://www.scmp.com/rss/5/feed   # World section
+    kind: news
+    notify: true
+    prod: false
+
+  - slug: times-of-india
+    url: https://timesofindia.indiatimes.com/rssfeeds/296589292.cms   # World section
+    kind: news
+    notify: true
+    prod: false
+
+  - slug: nikkei-asia
+    url: https://asia.nikkei.com/rss/feed/nar
+    kind: news
+    notify: true
+    prod: false
+
+  - slug: rnz-pacific
+    url: https://www.rnz.co.nz/rss/pacific.xml
+    kind: news
+    notify: true
+    prod: false
+
+  - slug: africanews
+    url: https://www.africanews.com/feed/rss
+    kind: news
+    notify: true
+    prod: false
