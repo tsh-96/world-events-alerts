@@ -44,6 +44,8 @@ logger = logging.getLogger(__name__)
 
 WEBHOOK_URL_ENV_VAR = "DISCORD_WEBHOOK_URL"
 PACE_BUDGET_MINUTES_ENV_VAR = "DISCORD_PACE_WINDOW_MINUTES"
+DEV_PACE_BUDGET_MINUTES_ENV_VAR = "DISCORD_DEV_PACE_WINDOW_MINUTES"
+DEV_MIN_INTERVAL_SECONDS_ENV_VAR = "DISCORD_DEV_MIN_INTERVAL_SECONDS"
 PROD_ENABLED_ENV_VAR = "DISCORD_PROD_ENABLED"
 STATE_DIR_ENV_VAR = "ALERTS_STATE_DIR"
 DEFAULT_STATE_DIR = Path(__file__).parent.parent / "state"
@@ -81,6 +83,12 @@ MAX_TOTAL_CHARS_PER_MESSAGE = 5500
 # post time per channel is persisted (see LAST_POST_STATE_FILENAME_TEMPLATE)
 # so even a lone event waits out the rest of this gap since that channel's
 # last post, not just gaps *within* one run's batch.
+#
+# DEV can override both the floor and the budget independently of prod via
+# DISCORD_DEV_MIN_INTERVAL_SECONDS / DISCORD_DEV_PACE_WINDOW_MINUTES --
+# handy for temporarily clearing a big one-off catch-up batch in dev fast
+# instead of waiting out the normal human-paced timing, without touching
+# prod's pacing at all (prod always uses the normal constants below).
 DEFAULT_PACE_BUDGET_MINUTES = 52
 PACE_MIN_INTERVAL_SECONDS = 240
 PACE_MAX_INTERVAL_SECONDS = 600
@@ -139,17 +147,19 @@ def _deliver_to_channel(channel: str, webhook_urls: list[str], events: list[dict
     if not events:
         return set()
 
-    slots = _assign_slots(events)
+    min_interval = _min_interval_seconds(channel)
+    budget_seconds = _pace_budget_seconds(channel)
+
+    slots = _assign_slots(events, min_interval, budget_seconds)
     logger.info(
         "discord: [%s] posting %d event(s) across %d message(s) this run", channel, len(events), len(slots)
     )
 
-    budget_seconds = _pace_budget_seconds()
     start = time.time()
     delivered_ids: set[str] = set()
     for i, slot_events in enumerate(slots):
         if i == 0:
-            _wait_for_cross_run_gap(channel)
+            _wait_for_cross_run_gap(channel, min_interval)
         for batch in _build_message_batches(slot_events):
             # A plain list comprehension, not a short-circuiting all(...) --
             # every webhook in this channel must actually be attempted,
@@ -163,22 +173,22 @@ def _deliver_to_channel(channel: str, webhook_urls: list[str], events: list[dict
         if i + 1 < len(slots):
             remaining_gaps = len(slots) - 1 - i
             remaining_budget = max(0.0, budget_seconds - (time.time() - start))
-            gap = _random_gap(remaining_gaps, remaining_budget)
+            gap = _random_gap(remaining_gaps, remaining_budget, min_interval)
             logger.info("discord: [%s] waiting %.0fs before the next post", channel, gap)
             time.sleep(gap)
     return delivered_ids
 
 
-def _wait_for_cross_run_gap(channel: str) -> None:
-    """Even a lone new event must not post within PACE_MIN_INTERVAL_SECONDS
-    of that channel's last successfully delivered post, no matter which run
-    sent it. Without this, a single-event run always posted with zero
-    delay, which is how two separate runs a minute apart could both fire
+def _wait_for_cross_run_gap(channel: str, min_interval: float) -> None:
+    """Even a lone new event must not post within `min_interval` of that
+    channel's last successfully delivered post, no matter which run sent
+    it. Without this, a single-event run always posted with zero delay,
+    which is how two separate runs a minute apart could both fire
     immediately and end up visually merged in Discord."""
     last_post_epoch = _load_last_post_time(channel)
     if last_post_epoch is None:
         return
-    remaining = PACE_MIN_INTERVAL_SECONDS - (time.time() - last_post_epoch)
+    remaining = min_interval - (time.time() - last_post_epoch)
     if remaining > 0:
         logger.info(
             "discord: [%s] waiting %.0fs since the previous check's last post to keep messages spaced out",
@@ -236,11 +246,19 @@ def _prod_webhook_urls() -> list[str]:
     return urls
 
 
-def _pace_budget_seconds() -> float:
+def _pace_budget_seconds(channel: str) -> float:
+    if channel == DEV_CHANNEL and DEV_PACE_BUDGET_MINUTES_ENV_VAR in os.environ:
+        return float(os.environ[DEV_PACE_BUDGET_MINUTES_ENV_VAR]) * 60
     return float(os.environ.get(PACE_BUDGET_MINUTES_ENV_VAR, DEFAULT_PACE_BUDGET_MINUTES)) * 60
 
 
-def _assign_slots(events: list[dict]) -> list[list[dict]]:
+def _min_interval_seconds(channel: str) -> float:
+    if channel == DEV_CHANNEL and DEV_MIN_INTERVAL_SECONDS_ENV_VAR in os.environ:
+        return float(os.environ[DEV_MIN_INTERVAL_SECONDS_ENV_VAR])
+    return PACE_MIN_INTERVAL_SECONDS
+
+
+def _assign_slots(events: list[dict], min_interval: float, budget_seconds: float) -> list[list[dict]]:
     """Split events (already in chronological order) into as many posting
     slots as fit in the pacing budget at the minimum gap. If there are more
     events than that, extra events are bundled onto slots (multiple events
@@ -250,8 +268,7 @@ def _assign_slots(events: list[dict]) -> list[list[dict]]:
     if len(events) <= 1:
         return [events]
 
-    budget_seconds = _pace_budget_seconds()
-    slot_count = max(1, min(len(events), int(budget_seconds // PACE_MIN_INTERVAL_SECONDS) + 1))
+    slot_count = max(1, min(len(events), int(budget_seconds // min_interval) + 1))
     base, extra = divmod(len(events), slot_count)
 
     slots: list[list[dict]] = []
@@ -265,8 +282,8 @@ def _assign_slots(events: list[dict]) -> list[list[dict]]:
     return slots
 
 
-def _random_gap(remaining_gaps: int, remaining_budget_seconds: float) -> float:
-    """A randomized gap in [PACE_MIN_INTERVAL_SECONDS, PACE_MAX_INTERVAL_SECONDS].
+def _random_gap(remaining_gaps: int, remaining_budget_seconds: float, min_interval: float) -> float:
+    """A randomized gap in [min_interval, PACE_MAX_INTERVAL_SECONDS].
     Re-planned at every step from how much budget and how many gaps are
     left, so the run stays inside its pacing budget even if earlier gaps
     happened to land on the high side -- never a perfectly even metronome,
@@ -280,9 +297,9 @@ def _random_gap(remaining_gaps: int, remaining_budget_seconds: float) -> float:
     at the floor), it falls back to the floor with no jitter, since any
     randomness there could only push the run over its budget, never under."""
     if remaining_gaps <= 0:
-        return PACE_MIN_INTERVAL_SECONDS
+        return min_interval
     target_avg = remaining_budget_seconds / remaining_gaps
-    low = PACE_MIN_INTERVAL_SECONDS
+    low = min_interval
     if target_avg <= low:
         return low
     high = min(PACE_MAX_INTERVAL_SECONDS, 2 * target_avg - low)

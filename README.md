@@ -264,6 +264,13 @@ timing across the pacing budget) since they usually carry different
 content, so their messages won't necessarily land at the same moments
 even for an event that reaches both.
 
+Dev's pacing can be overridden independently of prod's via
+`DISCORD_DEV_MIN_INTERVAL_SECONDS` / `DISCORD_DEV_PACE_WINDOW_MINUTES` (set
+in `poll.yml`) -- useful for clearing a big one-off catch-up batch in dev
+quickly instead of waiting out the normal human-paced timing. Prod always
+uses the normal `DISCORD_PACE_WINDOW_MINUTES`/4-minute settings regardless
+of what dev's overrides are set to.
+
 If you only want one channel, just set `DISCORD_WEBHOOK_URL` -- everything
 notable posts there and prod-tier filtering never comes into play. Set
 `DISCORD_WEBHOOK_URL_3`, `_4`, ... for additional prod-tier mirrors if you

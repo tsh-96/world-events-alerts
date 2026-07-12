@@ -37,6 +37,13 @@
 #     the separate "Clear backlog" workflow once (Actions tab) -- it marks
 #     everything currently pending as seen without posting it, so the next
 #     normal run only picks up what happens from that point on.
+#   TEMPORARY fast-dev catch-up: DISCORD_DEV_MIN_INTERVAL_SECONDS and
+#     DISCORD_DEV_PACE_WINDOW_MINUTES below override the normal pacing for
+#     the dev channel ONLY (prod, when it's ever turned on, always uses the
+#     normal DISCORD_PACE_WINDOW_MINUTES/4-minute settings regardless).
+#     Useful for clearing a big one-off batch in dev fast instead of
+#     waiting out the human-paced timing -- delete both lines (or comment
+#     them out) once dev has caught up, to go back to normal dev pacing.
 name: Poll world events
 
 on:
@@ -82,6 +89,8 @@ jobs:
           USGS_MIN_MAGNITUDE: "4.5"
           GDACS_MIN_SEVERITY: "2"
           DISCORD_PACE_WINDOW_MINUTES: "52"
+          DISCORD_DEV_MIN_INTERVAL_SECONDS: "15"   # TEMPORARY -- see note above
+          DISCORD_DEV_PACE_WINDOW_MINUTES: "5"     # TEMPORARY -- see note above
         run: python -m alerts.run --sinks discord
 
       - name: Save state cache
