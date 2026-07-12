@@ -80,6 +80,7 @@ Useful env vars:
 | `USGS_FEED_URL` | USGS feed to poll (default `all_hour.geojson`; e.g. swap to `2.5_day.geojson` for a calmer feed) |
 | `USGS_MIN_MAGNITUDE` | minimum earthquake magnitude that triggers an alert (default `0`, i.e. unfiltered; the live bot runs with `4.5`) |
 | `GDACS_FEED_URL` | GDACS feed URL override |
+| `GDACS_MIN_SEVERITY` | minimum GDACS alert level that triggers an alert -- `1`=Green, `2`=Orange, `3`=Red (default `1`, i.e. unfiltered; the live bot runs with `2` since Green fires constantly worldwide, mostly minor satellite-detected wildfires) |
 | `DISCORD_WEBHOOK_URL` | Discord webhook URL -- **secret**, see below |
 
 ## Changing settings on the live bot (no coding needed)
@@ -95,6 +96,9 @@ in the GitHub website (open the file, click the pencil/edit icon, save):
   `ENABLE_RSS` from `"true"` to `"false"`.
 - **Earthquake sensitivity:** `USGS_MIN_MAGNITUDE` -- raise it to hear
   about only bigger quakes, lower it to hear about more (smaller) ones.
+- **Disaster severity:** `GDACS_MIN_SEVERITY` -- `1` (Green) includes every
+  minor event, `2` (Orange) skips low-significance ones, `3` (Red) only
+  major disasters.
 - **Add/remove/edit news outlets:** see the next section.
 
 Note: checking more often does not mean more Discord messages by itself --

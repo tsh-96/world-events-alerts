@@ -54,7 +54,12 @@ def collect_events() -> list[dict]:
 
     if _enabled("ENABLE_GDACS"):
         events.extend(
-            gdacs.fetch(feed_url=os.environ.get("GDACS_FEED_URL", gdacs.DEFAULT_FEED_URL))
+            gdacs.fetch(
+                feed_url=os.environ.get("GDACS_FEED_URL", gdacs.DEFAULT_FEED_URL),
+                min_severity=int(
+                    os.environ.get("GDACS_MIN_SEVERITY", gdacs.DEFAULT_MIN_SEVERITY)
+                ),
+            )
         )
 
     if _enabled("ENABLE_RSS"):

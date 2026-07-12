@@ -5,6 +5,8 @@
 #     "true" or "false" below.
 #   Earthquake filter: raise/lower USGS_MIN_MAGNITUDE (currently 4.5 --
 #     only earthquakes at or above this size get posted).
+#   Disaster severity filter: GDACS_MIN_SEVERITY (currently 2 -- 1=Green,
+#     2=Orange, 3=Red; Green fires constantly worldwide and is skipped).
 #   Add/remove/edit news feeds: edit alerts/config/feeds.yaml instead.
 name: Poll world events
 
@@ -42,6 +44,7 @@ jobs:
           ENABLE_GDACS: "true"
           ENABLE_RSS: "true"
           USGS_MIN_MAGNITUDE: "4.5"
+          GDACS_MIN_SEVERITY: "2"
         run: python -m alerts.run --sinks discord
 
       - name: Save state cache
