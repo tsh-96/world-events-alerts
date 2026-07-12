@@ -16,6 +16,10 @@
 #     the budget a bit below the check frequency above (e.g. under 60 min
 #     if checks are hourly) so one check finishes before the next begins.
 #   Add/remove/edit news feeds: edit alerts/config/feeds.yaml instead.
+#   Post to more than one Discord channel: add a DISCORD_WEBHOOK_URL_2 repo
+#     secret (DISCORD_WEBHOOK_URL_3, etc. for more) and uncomment/add the
+#     matching env line below -- every configured webhook gets the exact
+#     same feed, same pacing.
 name: Poll world events
 
 on:
@@ -55,6 +59,7 @@ jobs:
       - name: Poll sources and post to Discord
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_WEBHOOK_URL_2: ${{ secrets.DISCORD_WEBHOOK_URL_2 }}
           ENABLE_USGS: "true"
           ENABLE_GDACS: "true"
           ENABLE_RSS: "true"

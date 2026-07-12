@@ -1,7 +1,9 @@
-"""Discord sink: posts one embed per event to a webhook.
+"""Discord sink: posts one embed per event to one or more webhooks.
 
-The webhook URL is a SECRET (env var DISCORD_WEBHOOK_URL) -- never log it,
-never put it in an exception message that might reach logs/CI output.
+Webhook URLs are SECRETS (env vars DISCORD_WEBHOOK_URL, DISCORD_WEBHOOK_URL_2,
+DISCORD_WEBHOOK_URL_3, ...) -- never log them, never put them in an exception
+message that might reach logs/CI output. An event only counts as delivered
+once every configured webhook has received it.
 """
 
 from __future__ import annotations
@@ -54,16 +56,16 @@ DEFAULT_COLOR = 0x95A5A6  # grey
 
 
 def send(events: list[dict]) -> list[dict]:
-    """Post events to Discord at randomized, paced intervals and return the
-    subset actually delivered. Callers must only mark returned events as
-    "seen" -- an event that fails to post, or that this run didn't get to
-    at all, has to stay eligible for the next poll, not silently vanish
-    into the dedupe store."""
+    """Post events to every configured webhook at randomized, paced
+    intervals and return the subset actually delivered (to all webhooks).
+    Callers must only mark returned events as "seen" -- an event that fails
+    to post, or that this run didn't get to at all, has to stay eligible
+    for the next poll, not silently vanish into the dedupe store."""
     if not events:
         return []
 
-    webhook_url = os.environ.get(WEBHOOK_URL_ENV_VAR)
-    if not webhook_url:
+    webhook_urls = _webhook_urls()
+    if not webhook_urls:
         logger.error("discord: %s is not set, skipping %d event(s)", WEBHOOK_URL_ENV_VAR, len(events))
         return []
 
@@ -76,13 +78,35 @@ def send(events: list[dict]) -> list[dict]:
 
     sent: list[dict] = []
     for i, event in enumerate(to_post):
-        if _post_one(webhook_url, event):
+        # A plain list comprehension, not a short-circuiting all(...) --
+        # every configured webhook must actually be attempted, even if an
+        # earlier one failed, so one broken channel can't silently starve
+        # the others of a message they'd otherwise have received fine.
+        results = [_post_one(url, event) for url in webhook_urls]
+        if all(results):
             sent.append(event)
         if i + 1 < len(to_post):
             gap = _random_gap(len(to_post))
             logger.info("discord: waiting %.0fs before the next post", gap)
             time.sleep(gap)
     return sent
+
+
+def _webhook_urls() -> list[str]:
+    """DISCORD_WEBHOOK_URL, plus DISCORD_WEBHOOK_URL_2, _3, ... for any
+    additional channels/servers, each mirroring the exact same feed."""
+    urls = []
+    primary = os.environ.get(WEBHOOK_URL_ENV_VAR)
+    if primary:
+        urls.append(primary)
+    i = 2
+    while True:
+        extra = os.environ.get(f"{WEBHOOK_URL_ENV_VAR}_{i}")
+        if not extra:
+            break
+        urls.append(extra)
+        i += 1
+    return urls
 
 
 def _select_for_this_run(events: list[dict]) -> tuple[list[dict], list[dict]]:
