@@ -1,4 +1,6 @@
-"""Discord sink: posts one embed per event to one or more webhooks.
+"""Discord sink: posts events as embeds to one or more webhooks, usually one
+embed per message but bundling several into one message when the pacing
+budget can't give everything its own slot (see send() below).
 
 Webhook URLs are SECRETS (env vars DISCORD_WEBHOOK_URL, DISCORD_WEBHOOK_URL_2,
 DISCORD_WEBHOOK_URL_3, ...) -- never log them, never put them in an exception
@@ -26,38 +28,35 @@ DEFAULT_STATE_DIR = Path(__file__).parent.parent / "state"
 LAST_POST_STATE_FILENAME = "discord_last_post.json"
 REQUEST_TIMEOUT_SECONDS = 15
 
-# One embed per Discord message -- with the per-field caps below, a single
-# embed is always far under Discord's combined-message character limit, so
-# there is no batching/char-budget bookkeeping to get wrong.
 MAX_TITLE_CHARS = 256
 MAX_DESCRIPTION_CHARS = 350
 MAX_PLACE_CHARS = 100
 
-# When there's more than one new event, posts land at randomized moments
-# (not a metronome) instead of firing within seconds of each other -- but
-# never closer together than PACE_MIN_INTERVAL_SECONDS, and never spread
-# past PACE_MAX_INTERVAL_SECONDS apart even for a lone straggler. The total
-# time spent pacing is capped at PACE_BUDGET_MINUTES; if there are more new
-# events than that budget can fit at the minimum gap, the extras are simply
-# left unposted -- they stay eligible for delivery and get their own paced
-# treatment on the *next* check instead of blowing out this run's runtime.
-# Tune the budget to stay comfortably under the workflow's job timeout (see
-# .github/workflows/poll.yml).
+# Discord hard limits are 10 embeds and 6000 combined characters per
+# message. Kept comfortably under both so the truncation math above doesn't
+# need to be exact.
+MAX_EMBEDS_PER_MESSAGE = 8
+MAX_TOTAL_CHARS_PER_MESSAGE = 5500
+
+# New events post at randomized moments across roughly PACE_BUDGET_MINUTES
+# instead of firing within seconds of each other, never closer together
+# than PACE_MIN_INTERVAL_SECONDS. Unlike an earlier version of this, nothing
+# is ever left for the next check: there's only one check per hour now (see
+# poll.yml), so deferring would mean a real story sitting unposted for up
+# to another hour. Instead, every event this run collects gets posted THIS
+# run -- if there isn't enough of the budget left to give each event its
+# own message at the minimum gap, extra events are bundled into the same
+# message for some of the slots (see _assign_slots/_build_message_batches)
+# rather than pushed to later.
 #
 # PACE_MIN_INTERVAL_SECONDS is also the *cross-run* minimum gap: a single
 # new event found on its own would otherwise post immediately with no
-# pacing at all, so if two separate checks (e.g. the normal schedule and a
-# backup trigger) each find one new event a minute apart, both used to fire
-# right away. The last successful post time is now persisted (see
-# LAST_POST_STATE_FILENAME) so even a lone event waits out the rest of this
-# gap since the previous check's last post, not just gaps *within* one
-# run's batch. Note: Discord's own UI visually merges consecutive messages
-# from the same webhook (no repeated name/avatar) when they land within
-# roughly 7 minutes of each other -- at a 4 minute floor that can still
-# happen occasionally on the tightest gaps, traded off deliberately here
-# for faster backlog throughput (a higher floor means fewer messages fit
-# per hour).
-DEFAULT_PACE_BUDGET_MINUTES = 45
+# pacing at all, so two separate runs landing close together (e.g. a manual
+# run overlapping the hourly one) could both fire right away. The last
+# successful post time is persisted (see LAST_POST_STATE_FILENAME) so even
+# a lone event waits out the rest of this gap since the previous run's last
+# post, not just gaps *within* one run's batch.
+DEFAULT_PACE_BUDGET_MINUTES = 52
 PACE_MIN_INTERVAL_SECONDS = 240
 PACE_MAX_INTERVAL_SECONDS = 600
 
@@ -75,11 +74,10 @@ DEFAULT_COLOR = 0x95A5A6  # grey
 
 
 def send(events: list[dict]) -> list[dict]:
-    """Post events to every configured webhook at randomized, paced
-    intervals and return the subset actually delivered (to all webhooks).
-    Callers must only mark returned events as "seen" -- an event that fails
-    to post, or that this run didn't get to at all, has to stay eligible
-    for the next poll, not silently vanish into the dedupe store."""
+    """Post every event to every configured webhook this run -- nothing is
+    ever deferred to the next check. Returns the subset actually delivered
+    (to all webhooks); callers must only mark returned events as "seen" so
+    a failed post stays eligible for retry instead of silently vanishing."""
     if not events:
         return []
 
@@ -88,27 +86,28 @@ def send(events: list[dict]) -> list[dict]:
         logger.error("discord: %s is not set, skipping %d event(s)", WEBHOOK_URL_ENV_VAR, len(events))
         return []
 
-    to_post, deferred = _select_for_this_run(events)
-    if deferred:
-        logger.info(
-            "discord: %d event(s) deferred to the next check to stay within the pacing budget",
-            len(deferred),
-        )
+    slots = _assign_slots(events)
+    logger.info("discord: posting %d event(s) across %d message(s) this run", len(events), len(slots))
 
+    budget_seconds = _pace_budget_seconds()
+    start = time.time()
     sent: list[dict] = []
-    for i, event in enumerate(to_post):
+    for i, slot_events in enumerate(slots):
         if i == 0:
             _wait_for_cross_run_gap()
-        # A plain list comprehension, not a short-circuiting all(...) --
-        # every configured webhook must actually be attempted, even if an
-        # earlier one failed, so one broken channel can't silently starve
-        # the others of a message they'd otherwise have received fine.
-        results = [_post_one(url, event) for url in webhook_urls]
-        if all(results):
-            sent.append(event)
-            _save_last_post_time(time.time())
-        if i + 1 < len(to_post):
-            gap = _random_gap(len(to_post))
+        for batch in _build_message_batches(slot_events):
+            # A plain list comprehension, not a short-circuiting all(...) --
+            # every configured webhook must actually be attempted, even if
+            # an earlier one failed, so one broken channel can't silently
+            # starve the others of a message they'd otherwise have gotten.
+            results = [_post_batch(url, batch) for url in webhook_urls]
+            if all(results):
+                sent.extend(batch)
+                _save_last_post_time(time.time())
+        if i + 1 < len(slots):
+            remaining_gaps = len(slots) - 1 - i
+            remaining_budget = max(0.0, budget_seconds - (time.time() - start))
+            gap = _random_gap(remaining_gaps, remaining_budget)
             logger.info("discord: waiting %.0fs before the next post", gap)
             time.sleep(gap)
     return sent
@@ -174,57 +173,115 @@ def _webhook_urls() -> list[str]:
     return urls
 
 
-def _select_for_this_run(events: list[dict]) -> tuple[list[dict], list[dict]]:
-    """Cap how many events get paced out in one run so the minimum gap
-    between posts can't blow past the pacing budget. Anything beyond the
-    cap is left for the next check."""
+def _pace_budget_seconds() -> float:
+    return float(os.environ.get(PACE_BUDGET_MINUTES_ENV_VAR, DEFAULT_PACE_BUDGET_MINUTES)) * 60
+
+
+def _assign_slots(events: list[dict]) -> list[list[dict]]:
+    """Split events (already in chronological order) into as many posting
+    slots as fit in the pacing budget at the minimum gap. If there are more
+    events than that, extra events are bundled onto slots (multiple events
+    -> one Discord message) instead of leaving anything for next check."""
+    if not events:
+        return []
     if len(events) <= 1:
-        return events, []
-    budget_minutes = float(
-        os.environ.get(PACE_BUDGET_MINUTES_ENV_VAR, DEFAULT_PACE_BUDGET_MINUTES)
-    )
-    budget_seconds = budget_minutes * 60
-    max_events = int(budget_seconds // PACE_MIN_INTERVAL_SECONDS) + 1
-    return events[:max_events], events[max_events:]
+        return [events]
+
+    budget_seconds = _pace_budget_seconds()
+    slot_count = max(1, min(len(events), int(budget_seconds // PACE_MIN_INTERVAL_SECONDS) + 1))
+    base, extra = divmod(len(events), slot_count)
+
+    slots: list[list[dict]] = []
+    idx = 0
+    for i in range(slot_count):
+        size = base + (1 if i < extra else 0)
+        if size == 0:
+            continue
+        slots.append(events[idx : idx + size])
+        idx += size
+    return slots
 
 
-def _random_gap(event_count: int) -> float:
-    """A randomized gap in [PACE_MIN_INTERVAL_SECONDS, PACE_MAX_INTERVAL_SECONDS],
-    biased around the average interval needed to fit `event_count` posts in
-    the pacing budget -- never a perfectly even metronome, never below the
-    minimum."""
-    budget_minutes = float(
-        os.environ.get(PACE_BUDGET_MINUTES_ENV_VAR, DEFAULT_PACE_BUDGET_MINUTES)
-    )
-    budget_seconds = budget_minutes * 60
-    average = budget_seconds / max(1, event_count - 1)
+def _random_gap(remaining_gaps: int, remaining_budget_seconds: float) -> float:
+    """A randomized gap in [PACE_MIN_INTERVAL_SECONDS, PACE_MAX_INTERVAL_SECONDS].
+    Re-planned at every step from how much budget and how many gaps are
+    left, so the run stays inside its pacing budget even if earlier gaps
+    happened to land on the high side -- never a perfectly even metronome,
+    never below the minimum.
+
+    The range is built so its *average* never exceeds the recomputed
+    target (high = 2*target_avg - low keeps the uniform distribution's mean
+    exactly at target_avg): when there's real slack (few events relative to
+    the budget), that still allows plenty of randomness up to the max gap;
+    when every slot is already needed just to fit within budget (target_avg
+    at the floor), it falls back to the floor with no jitter, since any
+    randomness there could only push the run over its budget, never under."""
+    if remaining_gaps <= 0:
+        return PACE_MIN_INTERVAL_SECONDS
+    target_avg = remaining_budget_seconds / remaining_gaps
     low = PACE_MIN_INTERVAL_SECONDS
-    high = min(PACE_MAX_INTERVAL_SECONDS, max(low, average * 1.8))
+    if target_avg <= low:
+        return low
+    high = min(PACE_MAX_INTERVAL_SECONDS, 2 * target_avg - low)
+    if high <= low:
+        return low
     return random.uniform(low, high)
 
 
-def _post_one(webhook_url: str, event: dict, retries_left: int = 3) -> bool:
-    payload = {"embeds": [_to_embed(event)]}
+def _build_message_batches(events: list[dict]) -> list[list[dict]]:
+    """Pack one slot's events into as few Discord messages as possible
+    while staying under the embeds-per-message and combined-character
+    limits -- almost always just one message; only a very large slot (e.g.
+    an unusually big backlog bundled together) spills into a second."""
+    batches: list[list[dict]] = []
+    current: list[dict] = []
+    current_chars = 0
+    for event in events:
+        chars = _embed_char_count(event)
+        if current and (
+            len(current) >= MAX_EMBEDS_PER_MESSAGE or current_chars + chars > MAX_TOTAL_CHARS_PER_MESSAGE
+        ):
+            batches.append(current)
+            current = []
+            current_chars = 0
+        current.append(event)
+        current_chars += chars
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _embed_char_count(event: dict) -> int:
+    embed = _to_embed(event)
+    total = len(embed.get("title", "")) + len(embed.get("description", "") or "")
+    for field in embed.get("fields", []):
+        total += len(field.get("name", "")) + len(field.get("value", ""))
+    total += len(embed.get("footer", {}).get("text", ""))
+    return total
+
+
+def _post_batch(webhook_url: str, events: list[dict], retries_left: int = 3) -> bool:
+    payload = {"embeds": [_to_embed(event) for event in events]}
     try:
         response = requests.post(webhook_url, json=payload, timeout=REQUEST_TIMEOUT_SECONDS)
     except Exception:
-        logger.exception("discord: request failed for event %s", event["id"])
+        logger.exception("discord: request failed for event(s) %s", [e["id"] for e in events])
         return False
 
     if response.status_code == 429:
         if retries_left <= 0:
-            logger.error("discord: rate-limited repeatedly, dropping event %s", event["id"])
+            logger.error("discord: rate-limited repeatedly, dropping %d event(s)", len(events))
             return False
         retry_after = _extract_retry_after(response)
         logger.warning("discord: rate-limited, waiting %.1fs", retry_after)
         time.sleep(retry_after)
-        return _post_one(webhook_url, event, retries_left=retries_left - 1)
+        return _post_batch(webhook_url, events, retries_left=retries_left - 1)
 
     if not response.ok:
         logger.error(
-            "discord: webhook post failed with status %d for event %s: %s",
+            "discord: webhook post failed with status %d for %d event(s): %s",
             response.status_code,
-            event["id"],
+            len(events),
             response.text[:500],
         )
         return False

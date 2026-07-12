@@ -3,6 +3,7 @@
     python -m alerts.run --sinks console
     python -m alerts.run --sinks discord
     python -m alerts.run --dry-run
+    python -m alerts.run --mark-seen-only
 
 Scheduler-friendly: runs once and exits. No daemons.
 """
@@ -68,7 +69,7 @@ def collect_events() -> list[dict]:
     return events
 
 
-def run(sink_names: list[str], dry_run: bool) -> None:
+def run(sink_names: list[str], dry_run: bool, mark_seen_only: bool = False) -> None:
     events = collect_events()
     logger.info("collected %d event(s) from sources", len(events))
 
@@ -85,6 +86,11 @@ def run(sink_names: list[str], dry_run: bool) -> None:
         new_events = store.filter_unseen(events)
         new_events.sort(key=lambda event: event["time_utc"])
         logger.info("%d new event(s) after dedupe", len(new_events))
+
+        if mark_seen_only:
+            store.mark_seen(new_events)
+            print(f"cleared backlog: marked {len(new_events)} event(s) as seen without posting")
+            return
 
         delivered_ids = None
         for sink_name in sink_names:
@@ -121,6 +127,12 @@ def main() -> None:
         help="Print normalized events to console and skip state writes / sinks.",
     )
     parser.add_argument(
+        "--mark-seen-only",
+        action="store_true",
+        help="Mark every currently-new event as seen WITHOUT posting it to any sink -- "
+        "clears the backlog so the next run only picks up things that happen after this point.",
+    )
+    parser.add_argument(
         "--log-level",
         default=os.environ.get("LOG_LEVEL", "INFO"),
     )
@@ -128,7 +140,7 @@ def main() -> None:
 
     logging.basicConfig(level=args.log_level, format="%(asctime)s %(levelname)s %(message)s")
 
-    run(sink_names=args.sinks, dry_run=args.dry_run)
+    run(sink_names=args.sinks, dry_run=args.dry_run, mark_seen_only=args.mark_seen_only)
 
 
 if __name__ == "__main__":
