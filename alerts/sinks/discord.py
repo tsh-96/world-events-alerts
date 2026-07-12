@@ -19,9 +19,16 @@ REQUEST_TIMEOUT_SECONDS = 15
 MAX_EMBEDS_PER_MESSAGE = 10
 SLEEP_BETWEEN_REQUESTS_SECONDS = 2.0
 
-# Discord embed field limits (title/description get truncated to these).
+# Discord embed field limits (title/description/place get truncated to these
+# per-embed caps). Discord *also* caps the combined size of every embed in a
+# single message (title+description+footer+all field text, summed across up
+# to 10 embeds) at 6000 characters -- batches are built to respect that too,
+# not just the per-embed caps, since 10 real news summaries easily exceed it
+# even when each one individually looks small.
 MAX_TITLE_CHARS = 256
-MAX_DESCRIPTION_CHARS = 4096
+MAX_DESCRIPTION_CHARS = 350
+MAX_PLACE_CHARS = 100
+MAX_TOTAL_CHARS_PER_MESSAGE = 5500
 
 COLOR_BY_KIND = {
     "earthquake": 0xE74C3C,  # red
@@ -45,11 +52,43 @@ def send(events: list[dict]) -> None:
         logger.error("discord: %s is not set, skipping %d event(s)", WEBHOOK_URL_ENV_VAR, len(events))
         return
 
-    for i in range(0, len(events), MAX_EMBEDS_PER_MESSAGE):
-        batch = events[i : i + MAX_EMBEDS_PER_MESSAGE]
+    batches = _build_batches([_to_embed(event) for event in events])
+    for i, batch in enumerate(batches):
         _post_batch(webhook_url, batch)
-        if i + MAX_EMBEDS_PER_MESSAGE < len(events):
+        if i + 1 < len(batches):
             time.sleep(SLEEP_BETWEEN_REQUESTS_SECONDS)
+
+
+def _build_batches(embeds: list[dict]) -> list[list[dict]]:
+    """Group embeds into requests respecting both the 10-embeds-per-message
+    cap and the 6000-combined-characters-per-message cap."""
+    batches: list[list[dict]] = []
+    current: list[dict] = []
+    current_chars = 0
+
+    for embed in embeds:
+        embed_chars = _embed_char_count(embed)
+        if current and (
+            len(current) >= MAX_EMBEDS_PER_MESSAGE
+            or current_chars + embed_chars > MAX_TOTAL_CHARS_PER_MESSAGE
+        ):
+            batches.append(current)
+            current = []
+            current_chars = 0
+        current.append(embed)
+        current_chars += embed_chars
+
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _embed_char_count(embed: dict) -> int:
+    total = len(embed.get("title") or "") + len(embed.get("description") or "")
+    total += len(embed.get("footer", {}).get("text") or "")
+    for field in embed.get("fields", []):
+        total += len(field.get("name") or "") + len(field.get("value") or "")
+    return total
 
 
 def _post_batch(webhook_url: str, batch: list[dict], retries_left: int = 3) -> None:
@@ -91,7 +130,9 @@ def _to_embed(event: dict) -> dict:
 
     fields = []
     if event["place"]:
-        fields.append({"name": "Place", "value": str(event["place"]), "inline": True})
+        fields.append(
+            {"name": "Place", "value": _truncate(str(event["place"]), MAX_PLACE_CHARS), "inline": True}
+        )
     if event["severity"] is not None:
         fields.append({"name": "Severity", "value": str(event["severity"]), "inline": True})
     fields.append({"name": "Time (UTC)", "value": event["time_utc"], "inline": True})
