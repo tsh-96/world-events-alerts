@@ -46,10 +46,10 @@
 #   - SCMP: switched from the World section to the China section.
 #   - Euronews: switched to the "My Europe" theme feed instead of the
 #     general/world-mixed home feed.
-#   - Times of India: switched from the World section to their top-stories
-#     feed (India-dominated, since ToI's own top stories are India news).
 #   - Guardian, NPR: removed entirely after checking -- their "curated"
 #     candidates were no smaller/more selective than the full feed.
+#   - Times of India: archive-only, not notifying -- too much volume with
+#     no better alternative found (see the India entry below for detail).
 #
 # EVERYTHING is currently prod: false, including BBC/NYT, which used to
 # post live before this dev/prod split existed -- nothing gets promoted to
@@ -126,11 +126,18 @@ feeds:
     notify: true
     prod: false
 
+  # India dropped from notify for now: ToI's top-stories feed was too much
+  # genuine (non-duplicate) volume, and none of the alternatives checked
+  # were actually better -- The Hindu was worse (60 items vs. ToI's 45),
+  # Hindustan Times' topnews feed returned nothing (dead/outdated path),
+  # and NDTV's smaller count (20) turned out to be a general lifestyle/
+  # entertainment feed diluting real news, not a curated one. Still
+  # fetched and archived for the website; revisit if a genuinely curated
+  # India source turns up later.
   - slug: times-of-india
-    url: https://timesofindia.indiatimes.com/rssfeedstopstories.cms   # Top stories, India-dominated
+    url: https://timesofindia.indiatimes.com/rssfeedstopstories.cms
     kind: news
-    notify: true
-    prod: false
+    notify: false
 
   - slug: straits-times-asia
     url: https://www.straitstimes.com/news/asia/rss.xml   # Asia section, not World or Singapore
