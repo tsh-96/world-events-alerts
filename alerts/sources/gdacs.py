@@ -71,6 +71,14 @@ def fetch(feed_url: str = DEFAULT_FEED_URL, min_severity: int = DEFAULT_MIN_SEVE
         if event["severity"] is not None and event["severity"] < min_severity:
             continue
         events.append(event)
+    logger.info(
+        "gdacs: %d item(s) at/above min severity %s (%d raw entr%s in feed, %s)",
+        len(events),
+        min_severity,
+        len(parsed.entries),
+        "y" if len(parsed.entries) == 1 else "ies",
+        feed_url,
+    )
     return events
 
 

@@ -40,8 +40,9 @@ def fetch(
         logger.exception("usgs: failed to fetch %s", feed_url)
         return []
 
+    features = data.get("features", [])
     events = []
-    for feature in data.get("features", []):
+    for feature in features:
         try:
             event = _normalize_feature(feature)
         except Exception:
@@ -52,6 +53,13 @@ def fetch(
         if event["severity"] is not None and event["severity"] < min_magnitude:
             continue
         events.append(event)
+    logger.info(
+        "usgs: %d item(s) at/above min magnitude %s (%d raw feature(s) in feed, %s)",
+        len(events),
+        min_magnitude,
+        len(features),
+        feed_url,
+    )
     return events
 
 
