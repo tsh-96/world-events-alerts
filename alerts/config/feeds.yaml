@@ -21,6 +21,15 @@
 #           archived). For recurring non-article posts a feed mixes in
 #           alongside real headlines (digests, bulletins, live-blog
 #           wrap-ups), not real article content worth keeping either way.
+#   exclude_if_category_in: optional list of RSS <category>/<tag> values
+#           (case-insensitive, matched against every category the item
+#           carries) -- an item is skipped entirely if any of its
+#           categories match. For cutting a feed's own off-topic sections
+#           (sport scores, show/video listings) out of what's otherwise a
+#           real, wanted news feed, when there's no separate URL for just
+#           the news content. Only useful if the feed's items actually
+#           carry category tags -- check a raw item's `tags` field before
+#           relying on this.
 #
 # An outlet can list two feeds under the same slug: its full section feed
 # (notify: false -- every article, kept for the archive/website only) and
@@ -72,12 +81,20 @@ feeds:
     prod: true
 
   # No distinct "top stories only" feed found for Al Jazeera -- notifies
-  # directly off its single all-inclusive feed, same as BBC/CNN.
+  # directly off its single all-inclusive feed, same as BBC/CNN. Its items
+  # do carry a category tag though (checked directly): a 25-item sample
+  # was 16 News, 4 Sport, 4 "Show Types" (video/programme listings, not
+  # articles), 1 Features -- excluding the non-news categories below cuts
+  # about a third of its volume without dropping any actual news.
   - slug: al-jazeera
     url: https://www.aljazeera.com/xml/rss/all.xml
     kind: news
     notify: true
     prod: true
+    exclude_if_category_in:
+      - "Sport"
+      - "Show Types"
+      - "Features"
 
   - slug: cnn
     url: http://rss.cnn.com/rss/cnn_topstories.rss
