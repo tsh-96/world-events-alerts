@@ -52,13 +52,14 @@ def fetch(
         prod = bool(feed_cfg.get("prod", False))
         exclude_patterns = [p.lower() for p in feed_cfg.get("exclude_if_title_contains", [])]
         exclude_categories = {c.lower() for c in feed_cfg.get("exclude_if_category_in", [])}
+        include_categories = {c.lower() for c in feed_cfg.get("include_if_category_in", [])}
         if not slug or not url:
             logger.warning("rss: skipping malformed feed config entry: %r", feed_cfg)
             continue
 
         try:
             feed_events = _fetch_one_feed(
-                slug, url, kind, notify, prod, exclude_patterns, exclude_categories, cache
+                slug, url, kind, notify, prod, exclude_patterns, exclude_categories, include_categories, cache
             )
         except Exception:
             logger.exception("rss: failed to fetch feed %s (%s)", slug, url)
@@ -89,6 +90,7 @@ def _fetch_one_feed(
     prod: bool,
     exclude_patterns: list[str],
     exclude_categories: set[str],
+    include_categories: set[str],
     cache: dict,
 ) -> list[dict]:
     # Cached by URL, not slug -- an outlet can have more than one feed URL
@@ -120,7 +122,9 @@ def _fetch_one_feed(
     events = []
     for item in parsed.entries:
         try:
-            event = _normalize_item(slug, kind, notify, prod, exclude_patterns, exclude_categories, item)
+            event = _normalize_item(
+                slug, kind, notify, prod, exclude_patterns, exclude_categories, include_categories, item
+            )
         except Exception:
             logger.exception("rss: failed to normalize item from %s: %r", slug, item.get("link"))
             continue
@@ -136,6 +140,7 @@ def _normalize_item(
     prod: bool,
     exclude_patterns: list[str],
     exclude_categories: set[str],
+    include_categories: set[str],
     item,
 ) -> dict | None:
     native_id = item.get("id") or item.get("link")
@@ -148,14 +153,24 @@ def _normalize_item(
         logger.info("rss: %s item %r matched an exclude pattern, skipping", slug, raw_title)
         return None
 
-    if exclude_categories:
+    if exclude_categories or include_categories:
         item_categories = {
             tag["term"].lower() for tag in item.get("tags", []) if tag.get("term")
         }
-        matched = item_categories & exclude_categories
-        if matched:
+        if exclude_categories:
+            matched = item_categories & exclude_categories
+            if matched:
+                logger.info(
+                    "rss: %s item %r has excluded category %s, skipping", slug, raw_title, matched
+                )
+                return None
+        if include_categories and not (item_categories & include_categories):
             logger.info(
-                "rss: %s item %r has excluded category %s, skipping", slug, raw_title, matched
+                "rss: %s item %r is not in an included category (has %s, want %s), skipping",
+                slug,
+                raw_title,
+                item_categories,
+                include_categories,
             )
             return None
 

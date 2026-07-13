@@ -30,6 +30,15 @@
 #           the news content. Only useful if the feed's items actually
 #           carry category tags -- check a raw item's `tags` field before
 #           relying on this.
+#   include_if_category_in: optional list of RSS <category>/<tag> values
+#           (case-insensitive) -- the inverse of exclude_if_category_in: an
+#           item is skipped unless at least one of its categories matches
+#           this list. Safer than an exclude list when a feed's set of
+#           non-news categories isn't fully known/stable -- a whitelist
+#           can't be silently defeated by some new category value showing
+#           up later that nobody thought to exclude. Don't set both
+#           exclude_if_category_in and include_if_category_in on the same
+#           feed; pick whichever direction is simpler for that feed.
 #
 # An outlet can list two feeds under the same slug: its full section feed
 # (notify: false -- every article, kept for the archive/website only) and
@@ -82,19 +91,19 @@ feeds:
 
   # No distinct "top stories only" feed found for Al Jazeera -- notifies
   # directly off its single all-inclusive feed, same as BBC/CNN. Its items
-  # do carry a category tag though (checked directly): a 25-item sample
-  # was 16 News, 4 Sport, 4 "Show Types" (video/programme listings, not
-  # articles), 1 Features -- excluding the non-news categories below cuts
-  # about a third of its volume without dropping any actual news.
+  # do carry a category tag though (checked directly, one tag per item,
+  # never more): two 25-item samples turned up News, Sport, "Show Types"
+  # (video/programme listings, not articles), Features, and "TV News"
+  # (broadcast segments, also not articles) -- rather than keep excluding
+  # non-news categories one at a time as new ones turn up, only "News"
+  # itself is allowed through.
   - slug: al-jazeera
     url: https://www.aljazeera.com/xml/rss/all.xml
     kind: news
     notify: true
     prod: true
-    exclude_if_category_in:
-      - "Sport"
-      - "Show Types"
-      - "Features"
+    include_if_category_in:
+      - "News"
 
   - slug: cnn
     url: http://rss.cnn.com/rss/cnn_topstories.rss
