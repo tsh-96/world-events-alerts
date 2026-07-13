@@ -29,10 +29,12 @@
 #     "prod" (only gets events also flagged prod_ready -- see feeds.yaml's
 #     `prod:` field per source). DISCORD_PROD_ENABLED is the master switch
 #     for the whole prod tier -- while it's "false", prod gets NOTHING no
-#     matter what any source's `prod` flag says. Only flip it to "true"
-#     once you're ready for prod to start receiving anything at all; even
-#     then, each source still needs its own `prod: true` in feeds.yaml to
-#     actually reach it.
+#     matter what any source's `prod` flag says. Currently "true": prod is
+#     live for USGS, GDACS, bbc, al-jazeera, mercopress, and rnz-pacific
+#     (the only sources with `prod: true` in feeds.yaml -- USGS/GDACS don't
+#     need that flag, see feeds.yaml's comment). Everything else stays
+#     dev-only until it gets the same explicit go-ahead in chat and its own
+#     `prod: true` in feeds.yaml.
 #   Skip a pile of old news (e.g. after the bot was off for a while): run
 #     the separate "Clear backlog" workflow once (Actions tab) -- it marks
 #     everything currently pending as seen without posting it, so the next
@@ -84,7 +86,7 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           DISCORD_WEBHOOK_URL_2: ${{ secrets.DISCORD_WEBHOOK_URL_2 }}
-          DISCORD_PROD_ENABLED: "false"
+          DISCORD_PROD_ENABLED: "true"
           ENABLE_USGS: "true"
           ENABLE_GDACS: "true"
           ENABLE_RSS: "true"
