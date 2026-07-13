@@ -51,12 +51,15 @@ def fetch(
         notify = bool(feed_cfg.get("notify", False))
         prod = bool(feed_cfg.get("prod", False))
         exclude_patterns = [p.lower() for p in feed_cfg.get("exclude_if_title_contains", [])]
+        exclude_categories = {c.lower() for c in feed_cfg.get("exclude_if_category_in", [])}
         if not slug or not url:
             logger.warning("rss: skipping malformed feed config entry: %r", feed_cfg)
             continue
 
         try:
-            feed_events = _fetch_one_feed(slug, url, kind, notify, prod, exclude_patterns, cache)
+            feed_events = _fetch_one_feed(
+                slug, url, kind, notify, prod, exclude_patterns, exclude_categories, cache
+            )
         except Exception:
             logger.exception("rss: failed to fetch feed %s (%s)", slug, url)
             continue
@@ -85,6 +88,7 @@ def _fetch_one_feed(
     notify: bool,
     prod: bool,
     exclude_patterns: list[str],
+    exclude_categories: set[str],
     cache: dict,
 ) -> list[dict]:
     # Cached by URL, not slug -- an outlet can have more than one feed URL
@@ -116,7 +120,7 @@ def _fetch_one_feed(
     events = []
     for item in parsed.entries:
         try:
-            event = _normalize_item(slug, kind, notify, prod, exclude_patterns, item)
+            event = _normalize_item(slug, kind, notify, prod, exclude_patterns, exclude_categories, item)
         except Exception:
             logger.exception("rss: failed to normalize item from %s: %r", slug, item.get("link"))
             continue
@@ -126,7 +130,13 @@ def _fetch_one_feed(
 
 
 def _normalize_item(
-    slug: str, kind: str, notify: bool, prod: bool, exclude_patterns: list[str], item
+    slug: str,
+    kind: str,
+    notify: bool,
+    prod: bool,
+    exclude_patterns: list[str],
+    exclude_categories: set[str],
+    item,
 ) -> dict | None:
     native_id = item.get("id") or item.get("link")
     if not native_id:
@@ -137,6 +147,17 @@ def _normalize_item(
     if exclude_patterns and any(pattern in raw_title.lower() for pattern in exclude_patterns):
         logger.info("rss: %s item %r matched an exclude pattern, skipping", slug, raw_title)
         return None
+
+    if exclude_categories:
+        item_categories = {
+            tag["term"].lower() for tag in item.get("tags", []) if tag.get("term")
+        }
+        matched = item_categories & exclude_categories
+        if matched:
+            logger.info(
+                "rss: %s item %r has excluded category %s, skipping", slug, raw_title, matched
+            )
+            return None
 
     # feedparser usually turns a pubDate into published_parsed/updated_parsed
     # itself; the raw-string fallbacks below only kick in for feeds using a
