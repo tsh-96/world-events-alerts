@@ -68,14 +68,15 @@
 #   - Times of India: archive-only, not notifying -- too much volume with
 #     no better alternative found (see the India entry below for detail).
 #
-# prod: true is currently set for bbc, al-jazeera, mercopress, and
-# rnz-pacific (promoted after review in chat). USGS and GDACS post to prod
-# by default too -- they don't go through this file, see
-# alerts/normalize.py's make_event() docstring. Everything else here stays
-# prod: false (dev-only, on trial) until it gets the same explicit
-# go-ahead from the owner in chat, reviewed source by source against what
-# it's actually been posting to dev. Don't flip a `prod:` value without
-# that sign-off.
+# Every feed here is currently prod: false -- bbc, al-jazeera, mercopress,
+# and rnz-pacific were promoted to prod after review in chat, then flipped
+# back to dev-only when prod was narrowed back down to just USGS/GDACS
+# (earthquakes/disasters). USGS and GDACS don't go through this file at
+# all, see alerts/normalize.py's make_event() docstring -- they're
+# controlled solely by poll.yml's DISCORD_PROD_ENABLED switch. Don't flip
+# a `prod:` value here without the owner's explicit go-ahead in chat,
+# reviewed source by source against what it's actually been posting to
+# dev.
 #
 # Verify a feed's URL still resolves before adding it -- outlets change
 # their RSS paths without notice.
@@ -87,7 +88,7 @@ feeds:
     url: https://feeds.bbci.co.uk/news/world/rss.xml
     kind: news
     notify: true
-    prod: true
+    prod: false
 
   # No distinct "top stories only" feed found for Al Jazeera -- notifies
   # directly off its single all-inclusive feed, same as BBC/CNN. Its items
@@ -101,7 +102,7 @@ feeds:
     url: https://www.aljazeera.com/xml/rss/all.xml
     kind: news
     notify: true
-    prod: true
+    prod: false
     include_if_category_in:
       - "News"
 
@@ -123,7 +124,7 @@ feeds:
     url: https://en.mercopress.com/rss/
     kind: news
     notify: true
-    prod: true
+    prod: false
 
   # Couldn't locate a working "My Europe" section feed -- 3 guessed URL
   # patterns all 404'd, and euronews.com blocks direct browsing tools, so
@@ -177,7 +178,7 @@ feeds:
     url: https://www.rnz.co.nz/rss/pacific.xml
     kind: news
     notify: true
-    prod: true
+    prod: false
 
   - slug: africanews
     url: https://www.africanews.com/feed/rss
