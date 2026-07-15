@@ -28,6 +28,8 @@ alerts/
   sinks/
     console.py        prints events (dry runs, testing)
     discord.py         posts Discord embeds via webhook (dev + prod channels)
+    website.py          POSTs new events as JSON to an external URL (not yet
+                        wired into the live workflow -- see WEBSITE_INTEGRATION.md)
   config/feeds.yaml   RSS feed list + per-feed metadata
   run.py              CLI entrypoint
   state/              dedupe DB, RSS conditional-GET cache, per-channel
@@ -373,3 +375,10 @@ The event schema above is the contract. A future sink (e.g. a database
 writer for the map website) can be added with zero changes to any source
 module -- that's the point of the `sources -> normalize -> dedupe -> sinks`
 split. When in doubt about a field's meaning, follow the table exactly.
+
+A first step towards this already exists: `alerts/sinks/website.py` POSTs
+new notable events as JSON to an external URL. It's not wired into the
+live workflow yet (no real endpoint to point it at). See
+**`WEBSITE_INTEGRATION.md`** for the full handoff -- schema, current data
+volume, exactly what's needed to turn it on, and the tradeoffs to weigh
+first.
