@@ -7,8 +7,13 @@
 #     multiple overlapping timers just pile up runs behind each other.
 #   Turn a source on/off: change ENABLE_USGS / ENABLE_GDACS / ENABLE_RSS to
 #     "true" or "false" below.
-#   Earthquake filter: raise/lower USGS_MIN_MAGNITUDE (currently 4.5 --
-#     only earthquakes at or above this size get posted).
+#   Earthquake filter: raise/lower USGS_MIN_MAGNITUDE (currently 6.5 --
+#     only earthquakes at or above this size get posted, to BOTH dev and
+#     prod -- there's just the one filter, applied before an earthquake
+#     becomes an event at all, not a separate prod-only cutoff). USGS's
+#     own size tiers: 5.0-5.9 Moderate, 6.0-6.9 Strong, 7.0-7.9 Major,
+#     8.0+ Great. 6.5 sits partway into Strong -- picked in chat as the
+#     "major only" threshold, up from the earlier 4.5.
 #   Disaster severity filter: GDACS_MIN_SEVERITY (currently 2 -- 1=Green,
 #     2=Orange, 3=Red; Green fires constantly worldwide and is skipped).
 #   Message pacing: DISCORD_PACE_WINDOW_MINUTES (currently 52) -- new events
@@ -29,12 +34,13 @@
 #     "prod" (only gets events also flagged prod_ready -- see feeds.yaml's
 #     `prod:` field per source). DISCORD_PROD_ENABLED is the master switch
 #     for the whole prod tier -- while it's "false", prod gets NOTHING no
-#     matter what any source's `prod` flag says. Currently "false" again:
-#     paused in chat after a trial run, on request. USGS, GDACS, bbc,
-#     al-jazeera, mercopress, and rnz-pacific still carry `prod: true` in
-#     feeds.yaml/normalize.py for whenever it's turned back on -- this
-#     switch alone controls whether any of that reaches prod. Everything
-#     keeps posting to dev as before.
+#     matter what any source's `prod` flag says. Currently "true" again,
+#     but narrowed in chat to just USGS and GDACS: bbc, al-jazeera,
+#     mercopress, and rnz-pacific were flipped back to `prod: false` in
+#     feeds.yaml (still dev-only) after the earlier full pause. USGS/GDACS
+#     don't go through feeds.yaml's `prod:` flag at all -- see
+#     alerts/normalize.py's make_event() docstring, they're prod_ready by
+#     default whenever this switch is on.
 #   Skip a pile of old news (e.g. after the bot was off for a while): run
 #     the separate "Clear backlog" workflow once (Actions tab) -- it marks
 #     everything currently pending as seen without posting it, so the next
@@ -86,11 +92,11 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           DISCORD_WEBHOOK_URL_2: ${{ secrets.DISCORD_WEBHOOK_URL_2 }}
-          DISCORD_PROD_ENABLED: "false"
+          DISCORD_PROD_ENABLED: "true"
           ENABLE_USGS: "true"
           ENABLE_GDACS: "true"
           ENABLE_RSS: "true"
-          USGS_MIN_MAGNITUDE: "4.5"
+          USGS_MIN_MAGNITUDE: "6.5"
           GDACS_MIN_SEVERITY: "2"
           DISCORD_PACE_WINDOW_MINUTES: "52"
           DISCORD_DEV_MIN_INTERVAL_SECONDS: "1"   # dev = dump mode, see note above
