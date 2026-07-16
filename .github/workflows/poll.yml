@@ -70,6 +70,10 @@ jobs:
   poll:
     runs-on: ubuntu-latest
     timeout-minutes: 58
+    # contents: write lets the run commit public/events.json back to the
+    # repo (the webfile sink -- the map website's feed).
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -101,7 +105,28 @@ jobs:
           DISCORD_PACE_WINDOW_MINUTES: "52"
           DISCORD_DEV_MIN_INTERVAL_SECONDS: "1"   # dev = dump mode, see note above
           DISCORD_DEV_PACE_WINDOW_MINUTES: "1"    # dev = dump mode, see note above
-        run: python -m alerts.run --sinks discord
+        # webfile BEFORE discord on purpose: if the feed file somehow can't
+        # be written, the run stops before Discord posts anything, so a
+        # retry next hour can't double-post to Discord (see webfile.py).
+        run: python -m alerts.run --sinks webfile discord
+
+      # The webfile sink wrote/merged public/events.json in this checkout;
+      # commit it so the map website can fetch the updated feed. if: always()
+      # so a crash later in the run (e.g. mid-Discord-pacing) doesn't throw
+      # away a feed update that already happened.
+      - name: Publish events.json feed
+        if: always()
+        run: |
+          git config user.name "events-feed[bot]"
+          git config user.email "actions@github.com"
+          git add public/events.json
+          if git diff --cached --quiet; then
+            echo "No feed changes"
+          else
+            git commit -m "events.json: feed update"
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
 
       - name: Save state cache
         if: always()

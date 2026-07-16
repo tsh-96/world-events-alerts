@@ -72,7 +72,26 @@ The Discord "dev" channel currently receives every `notable` event from
 all of the above. That's the full set the owner said they want pushed to
 you.
 
-## How to actually receive it: the `website` sink
+## UPDATE: how the map website actually receives it (the `webfile` sink)
+
+**Decision made (2026-07-15, in chat with the owner):** the map website is
+a static site with no backend, so instead of the POST-based `website` sink
+below, a simpler file-based sink is now live: `alerts/sinks/webfile.py`
+maintains a rolling 7-day window of events in **`public/events.json`**
+(newest first, capped at 1000, merged by id so nothing ever duplicates),
+and the poll workflow commits that file back to this public repo every
+run that has changes. The website fetches it straight from
+`https://raw.githubusercontent.com/tsh-96/world-events-alerts/main/public/events.json`
+(CORS-enabled) -- no endpoint, no secrets, no coupling risk beyond a git
+commit inside our own Actions run. File shape:
+`{"generated_utc": "...", "events": [EVENT, ...]}`.
+
+The `website` POST sink below remains available and inert -- it's the
+right upgrade path if/when the website grows a real backend (database,
+history beyond the rolling window). Everything from here down is the
+original handoff text for that path.
+
+## The original plan: the `website` sink (not in use)
 
 There's no export file, database, or API today -- until now, Discord
 webhook messages were the *only* way any of this data left the repo. To

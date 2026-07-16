@@ -19,6 +19,7 @@ from alerts.dedupe import open_store
 from alerts.notability import suppress_similar_stories
 from alerts.sinks import console as console_sink
 from alerts.sinks import discord as discord_sink
+from alerts.sinks import webfile as webfile_sink
 from alerts.sinks import website as website_sink
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ SEEN_DB_PATH = STATE_DIR / "seen.sqlite3"
 SINKS = {
     "console": console_sink,
     "discord": discord_sink,
+    "webfile": webfile_sink,
     "website": website_sink,
 }
 
