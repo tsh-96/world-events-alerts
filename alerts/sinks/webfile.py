@@ -33,18 +33,29 @@ logger = logging.getLogger(__name__)
 
 FILE_PATH_ENV_VAR = "WEBFILE_PATH"  # override in tests; default is in-repo
 DEFAULT_FILE_PATH = Path(__file__).resolve().parent.parent.parent / "public" / "events.json"
-WINDOW_DAYS_ENV_VAR = "WEBFILE_WINDOW_DAYS"
-DEFAULT_WINDOW_DAYS = 7
-MAX_EVENTS_ENV_VAR = "WEBFILE_MAX_EVENTS"
-DEFAULT_MAX_EVENTS = 1000
+# News and earth events age differently: headlines are stale in days,
+# while the map site wants quakes/disasters to linger (its Earth-events
+# tab falls back to a two-week view when the last week was quiet). The
+# caps are per class so a busy news week can never push a quake out of
+# the file early; the earth cap is far above any realistic two weeks.
+NEWS_WINDOW_DAYS_ENV_VAR = "WEBFILE_NEWS_WINDOW_DAYS"
+DEFAULT_NEWS_WINDOW_DAYS = 7
+EARTH_WINDOW_DAYS_ENV_VAR = "WEBFILE_EARTH_WINDOW_DAYS"
+DEFAULT_EARTH_WINDOW_DAYS = 14
+MAX_NEWS_ENV_VAR = "WEBFILE_MAX_NEWS"
+DEFAULT_MAX_NEWS = 600
+MAX_EARTH_ENV_VAR = "WEBFILE_MAX_EARTH"
+DEFAULT_MAX_EARTH = 400
 
 
 def send(events: list[dict]) -> list[dict]:
     """Merge the batch into the rolling file. Returns the whole batch on
     success, [] on any failure (all-or-nothing, same as the other sinks)."""
     path = Path(os.environ.get(FILE_PATH_ENV_VAR) or DEFAULT_FILE_PATH)
-    window_days = int(os.environ.get(WINDOW_DAYS_ENV_VAR, DEFAULT_WINDOW_DAYS))
-    max_events = int(os.environ.get(MAX_EVENTS_ENV_VAR, DEFAULT_MAX_EVENTS))
+    news_days = int(os.environ.get(NEWS_WINDOW_DAYS_ENV_VAR, DEFAULT_NEWS_WINDOW_DAYS))
+    earth_days = int(os.environ.get(EARTH_WINDOW_DAYS_ENV_VAR, DEFAULT_EARTH_WINDOW_DAYS))
+    max_news = int(os.environ.get(MAX_NEWS_ENV_VAR, DEFAULT_MAX_NEWS))
+    max_earth = int(os.environ.get(MAX_EARTH_ENV_VAR, DEFAULT_MAX_EARTH))
 
     try:
         existing: list[dict] = []
@@ -57,12 +68,23 @@ def send(events: list[dict]) -> list[dict]:
 
         # time_utc is always "YYYY-MM-DDTHH:MM:SSZ", so plain string
         # comparison IS chronological comparison -- no parsing needed.
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=window_days)).strftime(
-            "%Y-%m-%dT%H:%M:%SZ"
-        )
-        merged = [e for e in by_id.values() if (e.get("time_utc") or "") >= cutoff]
+        def cutoff(days: int) -> str:
+            return (datetime.now(timezone.utc) - timedelta(days=days)).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            )
+
+        news_cutoff, earth_cutoff = cutoff(news_days), cutoff(earth_days)
+        news, earth = [], []
+        for e in by_id.values():
+            if e.get("kind") == "news":
+                if (e.get("time_utc") or "") >= news_cutoff:
+                    news.append(e)
+            elif (e.get("time_utc") or "") >= earth_cutoff:
+                earth.append(e)
+        news.sort(key=lambda e: e["time_utc"], reverse=True)
+        earth.sort(key=lambda e: e["time_utc"], reverse=True)
+        merged = news[:max_news] + earth[:max_earth]
         merged.sort(key=lambda e: e["time_utc"], reverse=True)
-        merged = merged[:max_events]
 
         path.parent.mkdir(parents=True, exist_ok=True)
         body = json.dumps(
