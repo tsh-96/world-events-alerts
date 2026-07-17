@@ -8,12 +8,14 @@
 #   Turn a source on/off: change ENABLE_USGS / ENABLE_GDACS / ENABLE_RSS to
 #     "true" or "false" below.
 #   Earthquake filter: raise/lower USGS_MIN_MAGNITUDE (currently 6.5 --
-#     only earthquakes at or above this size get posted, to BOTH dev and
-#     prod -- there's just the one filter, applied before an earthquake
-#     becomes an event at all, not a separate prod-only cutoff). USGS's
-#     own size tiers: 5.0-5.9 Moderate, 6.0-6.9 Strong, 7.0-7.9 Major,
-#     8.0+ Great. 6.5 sits partway into Strong -- picked in chat as the
-#     "major only" threshold, up from the earlier 4.5.
+#     only earthquakes at or above this size get posted to Discord, dev
+#     and prod alike). USGS's own size tiers: 5.0-5.9 Moderate, 6.0-6.9
+#     Strong, 7.0-7.9 Major, 8.0+ Great. 6.5 sits partway into Strong --
+#     picked in chat as the "major only" threshold, up from the earlier
+#     4.5. USGS_FETCH_MIN_MAGNITUDE (currently 5.5, picked in chat
+#     2026-07-17) is the separate WEBSITE bar: quakes between the two
+#     thresholds are fetched and land in public/events.json for the map
+#     site, but are never posted to any Discord channel.
 #   Disaster severity filter: GDACS_MIN_SEVERITY (currently 2 -- 1=Green,
 #     2=Orange, 3=Red; Green fires constantly worldwide and is skipped).
 #   Message pacing: DISCORD_PACE_WINDOW_MINUTES (currently 52) -- new events
@@ -101,6 +103,7 @@ jobs:
           ENABLE_GDACS: "true"
           ENABLE_RSS: "true"
           USGS_MIN_MAGNITUDE: "6.5"
+          USGS_FETCH_MIN_MAGNITUDE: "5.5"   # archive tier: 5.5-6.5 quakes go to the website only, never Discord
           GDACS_MIN_SEVERITY: "2"
           DISCORD_PACE_WINDOW_MINUTES: "52"
           DISCORD_DEV_MIN_INTERVAL_SECONDS: "1"   # dev = dump mode, see note above

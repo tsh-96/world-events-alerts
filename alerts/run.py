@@ -49,11 +49,13 @@ def collect_events() -> list[dict]:
     events: list[dict] = []
 
     if _enabled("ENABLE_USGS"):
+        min_magnitude = float(os.environ.get("USGS_MIN_MAGNITUDE", usgs.DEFAULT_MIN_MAGNITUDE))
         events.extend(
             usgs.fetch(
                 feed_url=os.environ.get("USGS_FEED_URL", usgs.DEFAULT_FEED_URL),
-                min_magnitude=float(
-                    os.environ.get("USGS_MIN_MAGNITUDE", usgs.DEFAULT_MIN_MAGNITUDE)
+                min_magnitude=min_magnitude,
+                fetch_min_magnitude=float(
+                    os.environ.get("USGS_FETCH_MIN_MAGNITUDE", min_magnitude)
                 ),
             )
         )
@@ -124,16 +126,34 @@ def run(sink_names: list[str], dry_run: bool, mark_seen_only: bool = False) -> N
             )
             quiet_events += redundant_events
 
+        # The archive tier: quiet NON-news events (e.g. quakes fetched below
+        # the Discord magnitude bar) still go to the webfile sink so the map
+        # website gets them. Quiet news stays archived-without-sending
+        # (below-bar feeds, cross-outlet repeats: showing those anywhere
+        # would just be noise/duplicates).
+        archive_events = [e for e in quiet_events if e.get("kind") != "news"]
+        quiet_news = [e for e in quiet_events if e.get("kind") == "news"]
+
+        notable_ids = {e["id"] for e in notable_events}
         delivered_ids = None
+        archive_delivered: set[str] = set()
         for sink_name in sink_names:
             sink = SINKS[sink_name]
-            delivered = sink.send(notable_events)
+            to_send = notable_events
+            if sink_name == "webfile" and archive_events:
+                to_send = sorted(notable_events + archive_events, key=lambda e: e["time_utc"])
+            delivered = sink.send(to_send)
             ids = {event["id"] for event in delivered}
+            archive_delivered |= ids - notable_ids
+            ids &= notable_ids
             delivered_ids = ids if delivered_ids is None else (delivered_ids & ids)
 
         # Only mark a notable event "seen" once every requested sink
         # actually delivered it -- a failed Discord batch must not make an
         # event disappear from future polls before it's ever been posted.
+        # Archive events likewise stay pending until the webfile sink
+        # confirms them (when it's not among the sinks, they're settled
+        # immediately, exactly like other quiet events).
         confirmed_notable = [e for e in notable_events if delivered_ids and e["id"] in delivered_ids]
         if len(confirmed_notable) < len(notable_events):
             logger.warning(
@@ -141,7 +161,11 @@ def run(sink_names: list[str], dry_run: bool, mark_seen_only: bool = False) -> N
                 len(notable_events) - len(confirmed_notable),
                 len(notable_events),
             )
-        store.mark_seen(quiet_events + confirmed_notable)
+        if "webfile" in sink_names:
+            confirmed_archive = [e for e in archive_events if e["id"] in archive_delivered]
+        else:
+            confirmed_archive = archive_events
+        store.mark_seen(quiet_news + confirmed_archive + confirmed_notable)
 
 
 def main() -> None:

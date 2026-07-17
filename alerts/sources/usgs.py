@@ -27,7 +27,14 @@ REQUEST_TIMEOUT_SECONDS = 15
 def fetch(
     feed_url: str = DEFAULT_FEED_URL,
     min_magnitude: float = DEFAULT_MIN_MAGNITUDE,
+    fetch_min_magnitude: float | None = None,
 ) -> list[dict]:
+    """`min_magnitude` is the notability bar (Discord). If
+    `fetch_min_magnitude` is set LOWER, quakes in between are still fetched
+    but flagged notable=False — the archive tier: they reach archive
+    consumers (the map website's webfile sink) without ever notifying."""
+    if fetch_min_magnitude is None or fetch_min_magnitude > min_magnitude:
+        fetch_min_magnitude = min_magnitude
     try:
         response = requests.get(
             feed_url,
@@ -50,12 +57,15 @@ def fetch(
             continue
         if event is None:
             continue
-        if event["severity"] is not None and event["severity"] < min_magnitude:
+        if event["severity"] is not None and event["severity"] < fetch_min_magnitude:
             continue
+        if event["severity"] is not None and event["severity"] < min_magnitude:
+            event["notable"] = False  # archive tier: website yes, Discord no
         events.append(event)
     logger.info(
-        "usgs: %d item(s) at/above min magnitude %s (%d raw feature(s) in feed, %s)",
+        "usgs: %d item(s) at/above fetch magnitude %s (notable at/above %s; %d raw feature(s) in feed, %s)",
         len(events),
+        fetch_min_magnitude,
         min_magnitude,
         len(features),
         feed_url,
