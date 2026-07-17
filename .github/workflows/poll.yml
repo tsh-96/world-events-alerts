@@ -114,12 +114,18 @@ jobs:
         run: python -m alerts.run --sinks webfile discord
 
       # The map website draws the ISS live by computing its position from
-      # the published orbital elements (TLE); refresh them each run so the
-      # math stays accurate. Failure is harmless (yesterday's TLE is still
-      # good for days), hence the fallbacks.
+      # the published orbital elements (TLE). CelesTrak's usage policy:
+      # their data updates once every 2 hours and fetching more often is
+      # discourteous — so only even UTC hours fetch (this workflow runs
+      # hourly). Failure is harmless (yesterday's TLE is still good for
+      # days), hence the fallbacks.
       - name: Refresh ISS orbital elements
         if: always()
         run: |
+          if [ $(( $(date -u +%-H) % 2 )) -ne 0 ]; then
+            echo "Odd UTC hour: skipping TLE fetch per CelesTrak's 2-hour update cadence"
+            exit 0
+          fi
           curl -sS -m 30 -A "world-events-alerts (github.com repo bot)" \
             "https://celestrak.org/NORAD/elements/gp.php?CATNR=25544&FORMAT=TLE" \
             -o /tmp/iss-tle.txt || true
