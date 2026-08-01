@@ -21,6 +21,10 @@ Two channels, not mirrors of each other:
                             stays silent while reviewing new sources in
                             dev, instead of relying on every source's flag
                             being set correctly.
+  DISCORD_PROD_MAX_AGE_MINUTES -- prod additionally only accepts events
+                            that happened within this many minutes (default
+                            180; 0 disables the check). Dev is unaffected
+                            and still receives them.
 
 Webhook URLs are SECRETS -- never log them, never put them in an exception
 message that might reach logs/CI output. Dev and prod are paced and
@@ -36,6 +40,7 @@ import logging
 import os
 import random
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -47,6 +52,7 @@ PACE_BUDGET_MINUTES_ENV_VAR = "DISCORD_PACE_WINDOW_MINUTES"
 DEV_PACE_BUDGET_MINUTES_ENV_VAR = "DISCORD_DEV_PACE_WINDOW_MINUTES"
 DEV_MIN_INTERVAL_SECONDS_ENV_VAR = "DISCORD_DEV_MIN_INTERVAL_SECONDS"
 PROD_ENABLED_ENV_VAR = "DISCORD_PROD_ENABLED"
+PROD_MAX_AGE_MINUTES_ENV_VAR = "DISCORD_PROD_MAX_AGE_MINUTES"
 STATE_DIR_ENV_VAR = "ALERTS_STATE_DIR"
 DEFAULT_STATE_DIR = Path(__file__).parent.parent / "state"
 LAST_POST_STATE_FILENAME_TEMPLATE = "discord_last_post_{channel}.json"
@@ -54,6 +60,19 @@ REQUEST_TIMEOUT_SECONDS = 15
 
 DEV_CHANNEL = "dev"
 PROD_CHANNEL = "prod"
+
+# Prod only carries events that actually happened recently. Dedupe is by id
+# alone (see alerts/dedupe.py), so an event that is genuinely old can still
+# look "new" to us -- GDACS re-issues an alert under a fresh episode id when
+# a disaster escalates, and a catch-up run after the poller has been down
+# surfaces a whole window of events at once. Neither should reach prod as if
+# it just happened: prod is the "something is happening right now" channel.
+# Dev still gets every one of them, so nothing is lost, just routed.
+#
+# 180 minutes leaves room for a source publishing an hour or two late, or a
+# missed poll or two, while still holding back a days-old event. Set
+# DISCORD_PROD_MAX_AGE_MINUTES to 0 to switch the guard off entirely.
+DEFAULT_PROD_MAX_AGE_MINUTES = 180.0
 
 MAX_TITLE_CHARS = 256
 MAX_DESCRIPTION_CHARS = 350
@@ -121,7 +140,25 @@ def send(events: list[dict]) -> list[dict]:
         logger.error("discord: %s is not set, skipping %d event(s)", WEBHOOK_URL_ENV_VAR, len(events))
         return []
 
-    prod_eligible_ids = {event["id"] for event in events if event.get("prod_ready", True)}
+    # Stale events are dropped from prod eligibility rather than left
+    # pending: they still count as fully delivered once dev has them (see
+    # the prod_ok check below), so they settle in the dedupe store instead
+    # of being retried against prod forever.
+    max_age_seconds = _prod_max_age_seconds()
+    prod_ready_ids = {event["id"] for event in events if event.get("prod_ready", True)}
+    prod_eligible_ids = {
+        event["id"]
+        for event in events
+        if event["id"] in prod_ready_ids and _is_fresh_enough_for_prod(event, max_age_seconds)
+    }
+    held_back = len(prod_ready_ids) - len(prod_eligible_ids)
+    if held_back:
+        logger.info(
+            "discord: [prod] %d prod-ready event(s) happened longer than %.0f minutes ago and were "
+            "held back from prod (dev still gets them)",
+            held_back,
+            max_age_seconds / 60,
+        )
     prod_events = [event for event in events if event["id"] in prod_eligible_ids]
 
     delivered_dev_ids = (
@@ -244,6 +281,46 @@ def _prod_webhook_urls() -> list[str]:
         urls.append(extra)
         i += 1
     return urls
+
+
+def _prod_max_age_seconds() -> float:
+    """How recently an event must have happened to be allowed onto prod.
+    Returns inf (guard disabled) for 0 or a negative value; falls back to
+    the default rather than dropping everything if the value is garbage."""
+    raw = os.environ.get(PROD_MAX_AGE_MINUTES_ENV_VAR, "").strip()
+    if not raw:
+        return DEFAULT_PROD_MAX_AGE_MINUTES * 60
+    try:
+        minutes = float(raw)
+    except ValueError:
+        logger.warning(
+            "discord: %s is not a number (%r) -- falling back to %.0f minutes",
+            PROD_MAX_AGE_MINUTES_ENV_VAR,
+            raw,
+            DEFAULT_PROD_MAX_AGE_MINUTES,
+        )
+        return DEFAULT_PROD_MAX_AGE_MINUTES * 60
+    return float("inf") if minutes <= 0 else minutes * 60
+
+
+def _is_fresh_enough_for_prod(event: dict, max_age_seconds: float) -> bool:
+    """An unparseable timestamp keeps the event OFF prod rather than on it:
+    prod staying quiet is the recoverable failure, prod posting something
+    that may be days old is not. It's logged loudly so a source changing its
+    time format shows up as warnings instead of prod silently going dead."""
+    if max_age_seconds == float("inf"):
+        return True
+    raw = event.get("time_utc")
+    try:
+        happened_at = datetime.strptime(raw, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        logger.warning(
+            "discord: [prod] event %s has an unusable time_utc (%r) -- holding it back from prod",
+            event.get("id"),
+            raw,
+        )
+        return False
+    return (datetime.now(timezone.utc) - happened_at).total_seconds() <= max_age_seconds
 
 
 def _pace_budget_seconds(channel: str) -> float:

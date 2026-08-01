@@ -43,6 +43,15 @@
 #     don't go through feeds.yaml's `prod:` flag at all -- see
 #     alerts/normalize.py's make_event() docstring, they're prod_ready by
 #     default whenever this switch is on.
+#   Prod only gets things that just happened: DISCORD_PROD_MAX_AGE_MINUTES
+#     (currently 180) keeps an event off prod if it happened longer ago than
+#     that, even when it's brand new to us. Dedupe is by id only, so a GDACS
+#     alert re-issued under a fresh episode id, or a catch-up run after the
+#     poller was down, can otherwise put a days-old event on prod as if it
+#     were breaking (this happened on 2026-08-01: a 9-day-old GDACS wildfire
+#     alert posted to prod on the first run after a 21-hour outage). 180
+#     minutes tolerates a source publishing late or a missed poll or two.
+#     Dev is unaffected and still receives everything. Set to 0 to disable.
 #   Skip a pile of old news (e.g. after the bot was off for a while): run
 #     the separate "Clear backlog" workflow once (Actions tab) -- it marks
 #     everything currently pending as seen without posting it, so the next
@@ -99,6 +108,7 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           DISCORD_WEBHOOK_URL_2: ${{ secrets.DISCORD_WEBHOOK_URL_2 }}
           DISCORD_PROD_ENABLED: "true"
+          DISCORD_PROD_MAX_AGE_MINUTES: "180"
           ENABLE_USGS: "true"
           ENABLE_GDACS: "true"
           ENABLE_RSS: "true"
