@@ -371,12 +371,6 @@ things that happen from that point on.
   a wildfire burning for a week arrives as episodes 15, 16, 17... of the
   same event, and keying on the episode made each one look like a brand-new
   disaster. That produced a dozen notifications for a single fire.
-  Severity, by contrast, follows `gdacs:episodealertlevel` (falling back to
-  the event level when absent), because that is the level GDACS writes into
-  the title. The two genuinely differ: a wildfire that peaked at Orange
-  keeps an Orange *event* level even on a calm day whose *episode* is
-  Green, so filtering on the event level let items headlined "Green forest
-  fire notification..." through an orange-and-above bar.
   GDACS also reports earthquakes (`EQ`) -- these are kept alongside USGS's
   own earthquake events under different, non-colliding ids rather than
   deduped against each other; expect occasional overlap for the same
