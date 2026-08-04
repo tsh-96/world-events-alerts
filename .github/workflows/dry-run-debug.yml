@@ -21,6 +21,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Dry-run all sources
+        env:
+          USGS_MIN_MAGNITUDE: "4.5"
+          GDACS_MIN_SEVERITY: "2"
+          LOG_LEVEL: "INFO"
+        run: python -m alerts.run --dry-run
+
       - name: TEMP probe GDACS raw alert-level fields
         run: |
           python - <<'PY'
@@ -45,10 +52,3 @@ jobs:
               if shown >= 12:
                   break
           PY
-
-      - name: Dry-run all sources
-        env:
-          USGS_MIN_MAGNITUDE: "4.5"
-          GDACS_MIN_SEVERITY: "2"
-          LOG_LEVEL: "INFO"
-        run: python -m alerts.run --dry-run
