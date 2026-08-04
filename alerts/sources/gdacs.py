@@ -89,8 +89,19 @@ def _normalize_entry(entry) -> dict | None:
         logger.warning("gdacs: entry missing eventid/eventtype, skipping: %r", entry.get("link"))
         return None
 
+    # GDACS reports two alert levels and they mean different things:
+    # gdacs:alertlevel is the level of the whole EVENT (a wildfire that
+    # peaked at Orange stays Orange), while gdacs:episodealertlevel is the
+    # level of THIS report, and it's the one GDACS writes into the title.
+    # Severity follows the episode, so the orange+ filter agrees with the
+    # headline the reader sees: a calm episode of an escalated fire arrives
+    # titled "Green forest fire notification..." and used to clear a >= 2
+    # bar on the strength of the event's Orange rating alone.
     alert_level = (entry.get("gdacs_alertlevel") or "").lower()
-    severity = ALERT_LEVEL_TO_SEVERITY.get(alert_level)
+    episode_alert_level = (entry.get("gdacs_episodealertlevel") or "").lower()
+    severity = ALERT_LEVEL_TO_SEVERITY.get(episode_alert_level)
+    if severity is None:
+        severity = ALERT_LEVEL_TO_SEVERITY.get(alert_level)
 
     # Identity is the event plus its alert level, deliberately NOT the
     # episode. GDACS publishes a fresh episode every time it re-reports an
