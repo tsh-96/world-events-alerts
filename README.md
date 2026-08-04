@@ -363,9 +363,14 @@ things that happen from that point on.
 - **USGS** (earthquakes): configurable feed + minimum magnitude; ids are
   the native USGS feature id.
 - **GDACS** (floods, cyclones, volcanoes, wildfires, drought, tsunamis, plus
-  its own earthquake alerts): ids combine `gdacs:eventid` with the episode
-  id when present, so a significant update to an ongoing disaster (e.g. a
-  cyclone's track changing) re-alerts as a "new" event by design.
+  its own earthquake alerts): ids combine `gdacs:eventid` with the event's
+  **alert level**, so one ongoing disaster produces one notification rather
+  than one per update, and re-alerts only when it actually changes level
+  (e.g. Orange -> Red). Ids deliberately do *not* include the episode id:
+  GDACS publishes a fresh episode every time it re-reports a live event, so
+  a wildfire burning for a week arrives as episodes 15, 16, 17... of the
+  same event, and keying on the episode made each one look like a brand-new
+  disaster. That produced a dozen notifications for a single fire.
   GDACS also reports earthquakes (`EQ`) -- these are kept alongside USGS's
   own earthquake events under different, non-colliding ids rather than
   deduped against each other; expect occasional overlap for the same

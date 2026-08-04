@@ -89,8 +89,19 @@ def _normalize_entry(entry) -> dict | None:
         logger.warning("gdacs: entry missing eventid/eventtype, skipping: %r", entry.get("link"))
         return None
 
-    episode_id = entry.get("gdacs_episodeid")
-    native_id = f"{event_id}:{episode_id}" if episode_id else str(event_id)
+    alert_level = (entry.get("gdacs_alertlevel") or "").lower()
+    severity = ALERT_LEVEL_TO_SEVERITY.get(alert_level)
+
+    # Identity is the event plus its alert level, deliberately NOT the
+    # episode. GDACS publishes a fresh episode every time it re-reports an
+    # ongoing disaster, so one wildfire burning for a week shows up as
+    # episodes 15, 16, 17... of the same event -- and keying on the episode
+    # made every one of those look like a brand-new disaster worth its own
+    # notification. Keying on the event alone would go too far the other
+    # way and silence a disaster that gets worse, so the alert level is
+    # folded in: a re-report at the same level is the event we already
+    # told you about, while Orange -> Red changes the id and notifies once.
+    native_id = f"{event_id}:{alert_level}" if alert_level else str(event_id)
 
     lat = _to_float(entry.get("geo_lat"))
     lon = _to_float(entry.get("geo_long"))
@@ -99,9 +110,6 @@ def _normalize_entry(entry) -> dict | None:
         return None
 
     kind = EVENT_TYPE_TO_KIND.get(event_type, event_type.lower())
-
-    alert_level = (entry.get("gdacs_alertlevel") or "").lower()
-    severity = ALERT_LEVEL_TO_SEVERITY.get(alert_level)
 
     country = entry.get("gdacs_iso3") or None
     place = entry.get("gdacs_country") or None

@@ -27,33 +27,3 @@ jobs:
           GDACS_MIN_SEVERITY: "2"
           LOG_LEVEL: "INFO"
         run: python -m alerts.run --dry-run
-
-      - name: TEMP probe GDACS raw alert-level fields
-        run: |
-          python - <<'PY'
-          import collections, re
-          import feedparser, requests
-          r = requests.get("https://www.gdacs.org/xml/rss.xml", timeout=20,
-                           headers={"User-Agent": "world-events-alerts (github.com repo bot)"})
-          feed = feedparser.parse(r.content)
-          print("TOTAL ENTRIES:", len(feed.entries))
-          tab = collections.Counter()
-          mismatches = []
-          for e in feed.entries:
-              title = (e.get("title") or "")
-              m = re.match(r"\s*(Green|Orange|Red)\b", title, re.I)
-              word = m.group(1).capitalize() if m else "(none)"
-              lvl = e.get("gdacs_alertlevel")
-              ep = e.get("gdacs_episodealertlevel")
-              tab[(word, str(lvl), str(ep))] += 1
-              if m and str(lvl).lower() != word.lower():
-                  mismatches.append((title, lvl, ep, e.get("gdacs_eventid"), e.get("gdacs_episodeid")))
-          print()
-          print("CROSSTAB  titleword | alertlevel | episodealertlevel | count")
-          for (w, l, ep), n in sorted(tab.items(), key=lambda x: -x[1]):
-              print("  %-8s | %-8s | %-8s | %d" % (w, l, ep, n))
-          print()
-          print("MISMATCHES (title colour != alertlevel):", len(mismatches))
-          for t, l, ep, ev, epi in mismatches[:25]:
-              print("  alertlevel=%-8s episode=%-8s id=%s:%s  %s" % (l, ep, ev, epi, t[:65]))
-          PY
