@@ -21,6 +21,31 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: TEMP probe GDACS raw alert-level fields
+        run: |
+          python - <<'PY'
+          import feedparser, requests
+          r = requests.get("https://www.gdacs.org/xml/rss.xml", timeout=20,
+                           headers={"User-Agent": "world-events-alerts (github.com repo bot)"})
+          feed = feedparser.parse(r.content)
+          print("total entries:", len(feed.entries))
+          keys = sorted({k for e in feed.entries for k in e.keys() if k.startswith("gdacs")})
+          print("all gdacs_* keys present:", keys)
+          shown = 0
+          for e in feed.entries:
+              title = (e.get("title") or "")
+              if not title.lower().startswith(("green", "orange")):
+                  continue
+              print("---")
+              print("  title            :", title[:80])
+              print("  alertlevel       :", repr(e.get("gdacs_alertlevel")))
+              print("  episodealertlevel:", repr(e.get("gdacs_episodealertlevel")))
+              print("  eventid/episodeid:", e.get("gdacs_eventid"), "/", e.get("gdacs_episodeid"))
+              shown += 1
+              if shown >= 12:
+                  break
+          PY
+
       - name: Dry-run all sources
         env:
           USGS_MIN_MAGNITUDE: "4.5"
