@@ -43,7 +43,8 @@ jobs:
           ENABLE_USGS: "true"
           ENABLE_GDACS: "true"
           ENABLE_RSS: "true"
-          USGS_MIN_MAGNITUDE: "4.5"
+          USGS_MIN_MAGNITUDE: "6.5"
+          USGS_FETCH_MIN_MAGNITUDE: "5.5"
           GDACS_MIN_SEVERITY: "2"
         run: python -m alerts.run --mark-seen-only
 

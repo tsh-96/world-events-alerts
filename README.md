@@ -88,10 +88,12 @@ Useful env vars:
 | `ALERTS_STATE_DIR` | override where the dedupe DB / RSS cache live (default `alerts/state`) |
 | `ENABLE_USGS` / `ENABLE_GDACS` / `ENABLE_RSS` | turn a whole source on/off (`"true"`/`"false"`, default on) |
 | `USGS_FEED_URL` | USGS feed to poll (default `all_hour.geojson`; e.g. swap to `2.5_day.geojson` for a calmer feed) |
-| `USGS_MIN_MAGNITUDE` | minimum earthquake magnitude that triggers an alert (default `0`, i.e. unfiltered; the live bot runs with `4.5`) |
+| `USGS_MIN_MAGNITUDE` | minimum earthquake magnitude that triggers a Discord alert (default `0`, i.e. unfiltered; the live bot runs with `6.5`) |
+| `USGS_FETCH_MIN_MAGNITUDE` | lower magnitude bar for *collecting* a quake at all (defaults to `USGS_MIN_MAGNITUDE`; the live bot runs with `5.5`, so 5.5-6.5 quakes reach the website feed as archive-tier events but never Discord) |
 | `GDACS_FEED_URL` | GDACS feed URL override |
 | `GDACS_MIN_SEVERITY` | minimum GDACS alert level that triggers an alert -- `1`=Green, `2`=Orange, `3`=Red (default `1`, i.e. unfiltered; the live bot runs with `2` since Green fires constantly worldwide, mostly minor satellite-detected wildfires) |
 | `DISCORD_WEBHOOK_URL` | Discord webhook URL -- **secret**, see below |
+| `DISCORD_PROD_MAX_AGE_MINUTES` | prod only accepts events that *happened* within this many minutes, however new they are to us (default `180`; `0` disables the check). Dev is unaffected -- see "Keeping stale events off prod" below |
 | `DISCORD_PACE_WINDOW_MINUTES` | new events spread at randomized moments (never less than 4 minutes apart) across roughly this many minutes instead of firing them all within seconds (default `52`; that same 4-minute minimum also applies to the very next post after any earlier run's last post, even for a single new event; nothing is ever left for the next run -- if there isn't enough of the budget to give every event its own message, extras get bundled a few at a time into the same message instead) |
 
 ## Changing settings on the live bot (no coding needed)
@@ -258,6 +260,25 @@ correct -- one place to hold everything back, one place to let it
 through. Once it's `"true"`, each source still needs its own
 `prod: true` to actually reach prod.
 
+### Keeping stale events off prod
+
+Being *new to us* and having *just happened* are not the same thing, and
+prod cares about the second one. Deduping is by id alone (see
+`alerts/dedupe.py`), so an event we've never seen before can still be old
+news: GDACS re-issues an alert under a fresh episode id when a disaster
+escalates, and a catch-up run after the poller has been down surfaces a
+whole window of events at once. On 2026-08-01 the first run after a
+21-hour outage put a 9-day-old GDACS wildfire alert on prod as if it were
+breaking.
+
+`DISCORD_PROD_MAX_AGE_MINUTES` (set in `poll.yml`, default `180`) is the
+guard: an event whose `time_utc` is older than that never reaches prod,
+no matter how new its id is. Dev still receives it, so nothing is lost --
+it just doesn't get announced as if it were happening now. An event held
+back this way is still marked seen once dev has it, so it won't be
+retried against prod on every later run. Set the value to `0` to turn the
+check off.
+
 A source graduates from dev to prod by editing `alerts/config/feeds.yaml`
 (`prod: false` -> `prod: true` for an RSS feed) or `alerts/normalize.py`'s
 default for a whole source type -- both config/one-line changes, no new
@@ -342,9 +363,14 @@ things that happen from that point on.
 - **USGS** (earthquakes): configurable feed + minimum magnitude; ids are
   the native USGS feature id.
 - **GDACS** (floods, cyclones, volcanoes, wildfires, drought, tsunamis, plus
-  its own earthquake alerts): ids combine `gdacs:eventid` with the episode
-  id when present, so a significant update to an ongoing disaster (e.g. a
-  cyclone's track changing) re-alerts as a "new" event by design.
+  its own earthquake alerts): ids combine `gdacs:eventid` with the event's
+  **alert level**, so one ongoing disaster produces one notification rather
+  than one per update, and re-alerts only when it actually changes level
+  (e.g. Orange -> Red). Ids deliberately do *not* include the episode id:
+  GDACS publishes a fresh episode every time it re-reports a live event, so
+  a wildfire burning for a week arrives as episodes 15, 16, 17... of the
+  same event, and keying on the episode made each one look like a brand-new
+  disaster. That produced a dozen notifications for a single fire.
   GDACS also reports earthquakes (`EQ`) -- these are kept alongside USGS's
   own earthquake events under different, non-colliding ids rather than
   deduped against each other; expect occasional overlap for the same
